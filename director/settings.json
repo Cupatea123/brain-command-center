@@ -1,0 +1,42 @@
+{
+  "_comment": "The director's permissions. {{VAULT}} becomes the vault path; local/settings.json adds rules (for example Read denies for files that must never be opened). It runs with --permission-mode dontAsk, so anything not allowed here is refused.",
+  "disableAllHooks": true,
+  "permissions": {
+    "allow": [
+      "Read({{VAULT}})",
+      "Read({{DATA}})",
+      "Glob",
+      "Grep",
+      "ToolSearch",
+      "TodoWrite",
+      "Edit({{VAULT}})",
+      "Write({{VAULT}})"
+    ],
+    "deny": [
+      "Bash",
+      "PowerShell",
+      "NotebookEdit",
+      "Agent",
+      "Workflow",
+      "WebFetch",
+      "WebSearch",
+      "Artifact",
+      "ArtifactData",
+      "ArtifactComments",
+      "CronCreate",
+      "CronDelete",
+      "RemoteTrigger",
+      "PushNotification",
+      "SendMessage",
+      "EnterWorktree",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/.credentials.json)",
+      "Read(**/secrets/**)",
+      "Edit(**/.obsidian/**)",
+      "Write(**/.obsidian/**)",
+      "Edit(**/.git/**)",
+      "Write(**/.git/**)"
+    ]
+  }
+}

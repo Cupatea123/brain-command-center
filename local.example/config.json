@@ -1,0 +1,23 @@
+{
+  "owner": "Alex",
+  "ownerKey": "me",
+  "title": "ALEX OS",
+  "subtitle": "PERSONAL · COMMAND CENTRE",
+  "place": "HOME",
+  "vault": "C:\\Users\\you\\Brain",
+  "obsidianVault": "Brain",
+  "activityDir": "",
+  "skillsDirs": [
+    "C:\\Users\\you\\.claude\\skills"
+  ],
+  "lint": null,
+  "vaultGit": {
+    "commit": true,
+    "push": false,
+    "message": "Command Center director edit"
+  },
+  "port": 4317,
+  "model": "sonnet",
+  "refreshModel": "sonnet",
+  "changesModel": "haiku"
+}

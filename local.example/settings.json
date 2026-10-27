@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [],
+    "deny": [
+      "Read(//c/Users/you/Documents/Private/**)"
+    ]
+  }
+}

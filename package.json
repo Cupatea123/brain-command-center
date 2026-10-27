@@ -1,0 +1,15 @@
+{
+  "name": "command-center",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local dashboard over an Obsidian second brain, with a headless Claude director",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "python -m unittest discover -s tests",
+    "smoke": "node tests/smoke.mjs"
+  },
+  "dependencies": {
+    "3d-force-graph": "1.80.1"
+  }
+}

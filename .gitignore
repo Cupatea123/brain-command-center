@@ -1,0 +1,13 @@
+# Runtime state: API token, snapshots (vault contents), director output, day history, logs
+data/
+# Your own settings, routines, colour groups and director facts (copy local.example/ to local/)
+local/
+# Dependencies (the browser build of 3d-force-graph is vendored in public/vendor)
+node_modules/
+# Python and editor noise
+__pycache__/
+*.pyc
+*.tmp
+.DS_Store
+Thumbs.db
+desktop.ini

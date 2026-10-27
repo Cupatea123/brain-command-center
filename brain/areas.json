@@ -1,0 +1,38 @@
+{
+  "_comment": "Colour groups for the brain map. Each note's owner (its project or area folder, or a task's or session's `project` link) is matched against `match` in order; `*` at the end is a prefix wildcard. Unmatched owners fall into the last group.",
+  "areas": [
+    {
+      "key": "business",
+      "label": "Business",
+      "color": "#E8A93A",
+      "match": [
+        "Side Hustle Shop"
+      ]
+    },
+    {
+      "key": "learning",
+      "label": "Learning",
+      "color": "#4F8DF5",
+      "match": [
+        "Learn Spanish"
+      ]
+    },
+    {
+      "key": "home",
+      "label": "Home & health",
+      "color": "#2BB8A4",
+      "match": [
+        "Home Lab",
+        "Health"
+      ]
+    },
+    {
+      "key": "system",
+      "label": "System",
+      "color": "#8E8C84",
+      "match": [
+        "*"
+      ]
+    }
+  ]
+}

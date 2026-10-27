@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__CC_TITLE__ · Command Center</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,2 28,9 28,23 16,30 4,23 4,9' fill='none' stroke='%23FF7A1A' stroke-width='3'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+<script>window.CC_TOKEN = "__CC_TOKEN__";</script>
+</head>
+<body>
+<header class="strip">
+  <div class="strip-left">
+    <span class="sig" id="sig-core"><i class="dot"></i>CORE · <b id="core-state">IDLE</b></span>
+    <span class="sig" id="sig-runner"><i class="dot"></i>RUNNER · <b id="runner-age">–</b></span>
+    <span class="sig" id="sig-sync"><i class="dot"></i>SYNC · <b id="sync-age">–</b></span>
+    <span class="phase" id="phase"></span>
+  </div>
+  <div class="strip-right">
+    <span class="sig">TASKS <b id="data-at">–</b></span>
+    <span class="sig">BRAIN <b id="brain-at">–</b></span>
+    <button class="btn ghost" id="btn-days" title="Past days">Days</button>
+    <button class="btn ghost" id="btn-refresh" title="Re-read the brain and have the director rework the dashboard">Refresh</button>
+    <button class="btn accent" id="btn-dayend">Done for today</button>
+    <button class="btn ghost icon" id="btn-menu" title="Director session" aria-haspopup="true">⋯</button>
+    <div class="menu" id="menu" hidden>
+      <div class="menu-row" id="menu-session">Director session: –</div>
+      <button class="menu-item" id="menu-reset">Start a new director session</button>
+    </div>
+  </div>
+</header>
+
+<main class="grid">
+  <!-- LEFT: TODAY -->
+  <aside class="col col-left">
+    <section class="panel">
+      <div class="panel-h"><span class="ico">▣</span>TODAY <span class="h-right" id="today-week">–</span></div>
+      <div class="clock-row">
+        <svg class="analog" id="analog" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="46" class="face"/>
+          <line id="h-hand" x1="50" y1="50" x2="50" y2="26" class="hand h"/>
+          <line id="m-hand" x1="50" y1="50" x2="50" y2="14" class="hand m"/>
+          <line id="s-hand" x1="50" y1="56" x2="50" y2="10" class="hand s"/>
+          <circle cx="50" cy="50" r="2.5" class="pin"/>
+        </svg>
+        <div class="digital">
+          <div class="time"><span id="clock-hm">--:--</span><span class="sec" id="clock-s">:--</span></div>
+          <div class="where">__CC_PLACE__ · <span id="tz"></span></div>
+        </div>
+      </div>
+      <div class="kv-row">
+        <div class="kv"><div class="k">TODAY</div><div class="v" id="today-date">–</div></div>
+        <div class="kv"><div class="k">NEXT HARD DATE</div><div class="v accent" id="deadline">–</div></div>
+      </div>
+      <div class="deadline-label" id="deadline-label"></div>
+      <div class="heat" id="heat"></div>
+      <div class="heat-legend"><span class="sw on"></span>this week · <span class="sw lvl"></span>session notes per week · <span id="heat-total"></span></div>
+    </section>
+    <section class="panel grow">
+      <div class="panel-h">NEXT 14 DAYS</div>
+      <ol class="next14" id="next14"></ol>
+    </section>
+  </aside>
+
+  <!-- CENTER -->
+  <section class="col col-center">
+    <div class="title-block">
+      <h1><span class="hex">⬡</span> __CC_TITLE__ <span class="accent">Command Center</span></h1>
+      <div class="subtitle">__CC_SUBTITLE__</div>
+    </div>
+
+    <section class="panel map-panel" id="map-panel">
+      <div class="map-bar">
+        <div class="tabs" role="tablist" id="view-tabs">
+          <span class="tabs-label">VIEW</span>
+          <button data-view="rings" class="on">RINGS</button>
+          <button data-view="circle">CIRCLE</button>
+          <button data-view="areas">AREAS</button>
+          <button data-view="links">LINKS</button>
+          <button data-view="timeline">TIMELINE</button>
+          <button data-view="orbit">3D ORBIT</button>
+        </div>
+        <div class="map-stats"><span id="map-stats">–</span> <button class="chip-btn" id="t-names">names</button></div>
+      </div>
+      <div class="map-bar">
+        <div class="tools">
+          <button class="chip-btn on" id="t-motion">motion</button>
+          <label class="search"><span>⌕</span><input id="map-search" type="search" placeholder="search" autocomplete="off"></label>
+          <button class="chip-btn" id="t-fit">⛶ fit</button>
+          <button class="chip-btn" id="t-full">⤢ full</button>
+        </div>
+      </div>
+      <div class="chips" id="area-chips"></div>
+      <div class="legend" id="type-legend">
+        <span><i class="lg diamond"></i>skill</span><span><i class="lg circle"></i>file</span><span><i class="lg routine"></i>routine</span><span><i class="lg hexa"></i>app</span><span><i class="lg run"></i>run</span>
+      </div>
+      <div class="map-stage" id="map-stage">
+        <canvas id="map-canvas"></canvas>
+        <div id="orbit" hidden></div>
+        <div class="map-tip" id="map-tip" hidden></div>
+        <aside class="drawer" id="drawer" hidden>
+          <button class="drawer-x" id="drawer-x" aria-label="Close">×</button>
+          <div id="drawer-body"></div>
+        </aside>
+      </div>
+    </section>
+
+    <div class="two">
+      <section class="panel">
+        <div class="panel-h">WHERE I'M AT <span class="h-right" id="director-at"></span></div>
+        <p class="lead" id="where"></p>
+        <ol class="focus" id="focus"></ol>
+      </section>
+      <section class="panel">
+        <div class="panel-h">DAILY BRIEF <span class="h-right" id="brief-shape"></span></div>
+        <p class="brief-headline" id="brief-headline"></p>
+        <div class="acts" id="brief-acts"></div>
+        <ul class="notes" id="brief-notes"></ul>
+        <div class="brief-link" id="brief-link"></div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="panel-h">PROJECTS <span class="h-right" id="projects-count"></span></div>
+      <div class="tiles" id="projects"></div>
+    </section>
+    <div class="two">
+      <section class="panel">
+        <div class="panel-h">SESSIONS</div>
+        <ol class="feed" id="sessions"></ol>
+      </section>
+      <section class="panel">
+        <div class="panel-h">RESOLVED</div>
+        <ol class="feed" id="resolved"></ol>
+        <div class="panel-h sub">TODO · OPEN <span class="h-right" id="todo-count"></span></div>
+        <ol class="feed compact" id="todo"></ol>
+      </section>
+    </div>
+  </section>
+
+  <!-- RIGHT -->
+  <aside class="col col-right">
+    <section class="panel">
+      <div class="panel-h"><span class="ico">⚑</span>NEEDS __CC_OWNER__ <span class="h-right">by urgency</span></div>
+      <div class="big"><span class="big-n" id="needs-n">–</span><span class="big-l">NEED<br>YOU</span></div>
+      <ol class="needs" id="needs"></ol>
+      <div class="segbar" id="segbar"></div>
+      <div class="seglegend" id="seglegend"></div>
+    </section>
+    <section class="panel grow">
+      <div class="panel-h"><span class="ico">◷</span>ROUTINES <span class="h-right" id="routines-fired">–</span></div>
+      <table class="routines"><thead><tr><th>TIME</th><th>ROUTINE</th><th>STATUS</th></tr></thead><tbody id="routines"></tbody></table>
+    </section>
+  </aside>
+</main>
+
+<footer class="cmd">
+  <div class="console" id="console" hidden>
+    <div class="console-h">DIRECTOR <span id="console-session"></span><button class="drawer-x" id="console-x" aria-label="Close">×</button></div>
+    <div class="console-log" id="console-log"></div>
+  </div>
+  <form class="cmd-bar" id="cmd-form" autocomplete="off">
+    <span class="prompt-sym">❯</span>
+    <input id="cmd-input" placeholder="Ask the director…  ( / to focus )" maxlength="8000">
+    <button type="button" class="btn ghost" id="btn-console">Console</button>
+    <button type="submit" class="btn accent">Send</button>
+  </form>
+</footer>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-card">
+    <button class="drawer-x" id="modal-x" aria-label="Close">×</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="vendor/3d-force-graph.min.js"></script>
+<script src="map/brainmap.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

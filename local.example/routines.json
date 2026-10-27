@@ -1,0 +1,42 @@
+{
+  "_comment": "Routines shown in the ROUTINES panel and the Timeline. `windows`: Windows Task Scheduler tasks by name; state comes from Task Scheduler (routines.ps1), runs per day from `log` when it has timestamped lines (YYYY-MM-DD HH:MM:SS ...), else from the scheduler's last run. `claude`: Claude Code scheduled tasks; copy the cron here; runs come from the vault Run Log named in `runlog` (lines `- YYYY-MM-DD HH:MM — outcome`) and, when activityDir is set, from the hook log. `apps`: nodes on the map's outer ring; a project or area note links to one when its body matches `match`. `owner` ties a routine to a project or area note.",
+  "gap_seconds": 150,
+  "windows": [
+    {
+      "task": "My Nightly Backup",
+      "label": "backup",
+      "log": "C:\\Scripts\\logs\\backup.log",
+      "owner": "Home Lab",
+      "schedule": "daily 02:00"
+    }
+  ],
+  "claude": [
+    {
+      "task": "health-checkin",
+      "label": "health-checkin",
+      "cron": "0 8 * * 1",
+      "runlog": "Health Run Log",
+      "owner": "Health"
+    }
+  ],
+  "apps": [
+    {
+      "key": "github",
+      "label": "GitHub",
+      "icon": "branch",
+      "match": "\\bGitHub\\b|\\brepo\\b"
+    },
+    {
+      "key": "etsy",
+      "label": "Etsy",
+      "icon": "box",
+      "match": "\\bEtsy\\b|\\bShopify\\b"
+    },
+    {
+      "key": "obsidian",
+      "label": "Obsidian vault",
+      "icon": "gem",
+      "match": "\\bvault\\b|\\bObsidian\\b"
+    }
+  ]
+}
