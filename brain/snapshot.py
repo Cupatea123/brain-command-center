@@ -606,7 +606,7 @@ def diff_views(prev: dict, cur: dict) -> dict:
 
 # ---------------------------------------------------------------- graph
 
-def build_graph(notes: list[dict], areas: Areas, routines: list[dict], apps: list[dict], skills: list[str]) -> dict:
+def build_graph(notes: list[dict], areas: Areas, routines: list[dict], apps: list[dict], skills: list[str], skills_hub: str = "") -> dict:
     nodes: dict[str, dict] = {}
     links: list[dict] = []
     stems = {n["stem"] for n in notes}
@@ -640,7 +640,7 @@ def build_graph(notes: list[dict], areas: Areas, routines: list[dict], apps: lis
         if key in stems and key != center:
             links.append({"source": center, "target": key, "kind": "core"})
 
-    hub = next((s for s in ("AI OS", "Claude Code Setup") if s in stems), center)
+    hub = skills_hub if skills_hub in stems else center  # the note skills hang off on the map
     for s in skills:
         add({"id": f"skill:{s}", "label": s, "type": "skill", "area": areas.of(hub), "ring": "skills", "size": 5})
         links.append({"source": f"skill:{s}", "target": hub, "kind": "skill"})
@@ -677,7 +677,7 @@ def build_graph(notes: list[dict], areas: Areas, routines: list[dict], apps: lis
 
 def build(vault: Path, win: dict, now: dt.datetime | None = None, routines_cfg: dict | None = None,
           areas_cfg: dict | None = None, skills_dirs: list[Path] | None = None, owner: str = "", owner_key: str = "",
-          activity_dir: Path | None = None) -> dict:
+          activity_dir: Path | None = None, skills_hub: str = "") -> dict:
     now = now or dt.datetime.now()
     today = now.date()
     routines_cfg = routines_cfg if routines_cfg is not None else load_json(HERE / "routines.json", {})
@@ -784,7 +784,7 @@ def build(vault: Path, win: dict, now: dt.datetime | None = None, routines_cfg: 
     queue = claude_next(tasks)
 
     skills = sorted({p.parent.name for d in (skills_dirs or []) if d.exists() for p in d.glob("*/SKILL.md") if not p.parent.name.startswith("_")})
-    graph = build_graph(notes, areas, routines, routines_cfg.get("apps", []), skills)
+    graph = build_graph(notes, areas, routines, routines_cfg.get("apps", []), skills, skills_hub)
     area_counts = Counter(n["area"] for n in graph["nodes"] if n["type"] == "file")
     area_list = [{"key": a["key"], "label": a["label"], "color": a["color"], "count": area_counts.get(a["key"], 0)} for a in areas_cfg["areas"]]
 
@@ -860,6 +860,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--routines-cfg", default=str(HERE / "routines.json"))
     ap.add_argument("--areas-cfg", default=str(HERE / "areas.json"))
     ap.add_argument("--skills", action="append", default=[], help="a folder of <skill>/SKILL.md; repeatable")
+    ap.add_argument("--skills-hub", default="", help="the note the skills link to on the map (default: the centre)")
     ap.add_argument("--owner", default="")
     ap.add_argument("--owner-key", default="", help="the task `owner:` value that means you (default: owner, lowercased)")
     ap.add_argument("--activity", help="folder of <date>.jsonl hook logs (prompts and file writes)")
@@ -868,7 +869,7 @@ def main(argv: list[str]) -> int:
     snap = build(Path(a.vault), load_json(Path(a.routines) if a.routines else None, {}),
                  routines_cfg=load_json(Path(a.routines_cfg), {}), areas_cfg=load_json(Path(a.areas_cfg), None),
                  skills_dirs=[Path(s) for s in a.skills], owner=a.owner, owner_key=a.owner_key,
-                 activity_dir=Path(a.activity) if a.activity else None)
+                 activity_dir=Path(a.activity) if a.activity else None, skills_hub=a.skills_hub)
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     write_atomic(out, snap)

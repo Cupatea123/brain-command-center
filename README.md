@@ -89,7 +89,7 @@ If your vault keeps a log of Claude Code sessions, add `^REFRESH (FULL|CHANGES) 
 | `tests/` | `python -m unittest discover -s tests`; `node tests/smoke.mjs ["a prompt"]` against a running server |
 
 ## Settings (`local/config.json`)
-`port` (or `node server.mjs --port 4318` for a second copy), `refreshMinutes`, `model` (prompts and day end), `refreshModel` (full refreshes and the compact), `changesModel` (changes-only refreshes), `compactAboveTokens`, `briefUrl` plus `briefRoutine` (a link under the brief once that routine fired today), `title`, `subtitle`, `place`, and `"director": false` to read the brain without calling Claude.
+`port` (or `node server.mjs --port 4318` for a second copy), `refreshMinutes`, `model` (prompts and day end), `refreshModel` (full refreshes and the compact), `changesModel` (changes-only refreshes), `compactAboveTokens`, `skillsHub` (the note your skills hang off on the map), `briefUrl` plus `briefRoutine` (a link under the brief once that routine fired today), `title`, `subtitle`, `place`, and `"director": false` to read the brain without calling Claude.
 
 `/api/health` reports whether the code or `local/` changed since the server started; `Start-CommandCenter.ps1` then restarts it, so reopening the shortcut picks up changes.
 

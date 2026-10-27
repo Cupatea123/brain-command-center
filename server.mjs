@@ -33,6 +33,7 @@ const CONFIG = {
   directorCwd: '',          // where the director runs (default: the vault, so its CLAUDE.md applies)
   activityDir: '',          // <date>.jsonl hook logs of prompts and file writes, if your vault keeps them
   skillsDirs: [path.join(process.env.USERPROFILE || process.env.HOME || '', '.claude', 'skills')],
+  skillsHub: '',            // the note the skills link to on the map (default: the centre node)
   lint: null,               // { cmd: ["node", "...", "lint"], ok: "regex the output matches when clean" }
   vaultGit: { commit: false, push: false, message: 'Command Center director edit' },
   auditLog: '',
@@ -198,6 +199,7 @@ async function readBrain(prevPath = null) {
   const args = [P.snapshotPy, '--vault', CONFIG.vault, '--out', P.snapshot, '--routines', P.routines, '--routines-cfg', P.routinesCfg, '--areas-cfg', P.areasCfg, '--owner', CONFIG.owner];
   if (CONFIG.ownerKey) args.push('--owner-key', CONFIG.ownerKey);
   for (const d of CONFIG.skillsDirs || []) args.push('--skills', d);
+  if (CONFIG.skillsHub) args.push('--skills-hub', CONFIG.skillsHub);
   if (CONFIG.activityDir) args.push('--activity', CONFIG.activityDir);
   if (prevPath && fs.existsSync(prevPath)) args.push('--prev', prevPath);
   const r = await run(EXE.python, args, { timeoutMs: 120000 });
