@@ -49,6 +49,16 @@ test('every employee gets a status, a task, a room and tokens', () => {
   assert.equal(by['00002'].tokens, null, 'no usage file, no number');
 });
 
+test('an idle employee shows no task, even when the office left an old summary on it', () => {
+  const v = buildView({ state: {}, employees: [
+    { id: '00004', name: 'Jo EA', status: 'idle', current_task_summary: 'A task that was cancelled earlier' },
+    { id: '00006', name: 'Finch', status: 'working', current_task_summary: 'Drafting the shortlist' },
+  ] });
+  const by = Object.fromEntries(v.employees.map((e) => [e.id, e]));
+  assert.equal(by['00004'].task, '');
+  assert.equal(by['00006'].task, 'Drafting the shortlist');
+});
+
 test('what waits on the owner: hire choices and pending answers, each with a link into the office', () => {
   const v = buildView(raw(), { url: 'http://127.0.0.1:8000' });
   assert.deepEqual(v.waiting.map((w) => w.kind), ['hire', 'sign-off', 'answer']);

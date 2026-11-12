@@ -77,7 +77,8 @@ export function buildView(raw, { url = '', tokensFor = () => null } = {}) {
     return {
       id, name: clip(e.name || e.nickname || id, 60), nickname: e.nickname && e.nickname !== e.name ? clip(e.nickname, 30) : '',
       role: clip(e.role || e.department || '', 30), status,
-      task: clip(e.current_task_summary || running?.task || '', 160),
+      // The office can leave an old summary on an employee whose task was cancelled: idle means no task.
+      task: status === 'idle' ? '' : clip(e.current_task_summary || running?.task || '', 160),
       project: running ? nameOf(running.project_id) : '',
       room: room ? clip(room.name || room.id, 40) : '',
       model: clip(e.llm_model || '', 30),
