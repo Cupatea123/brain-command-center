@@ -104,6 +104,17 @@ To change the bands, edit `band_items()` in `brain/usage.py`; `usage.windowDays`
 
 From `~/.claude.json` only `skillUsage` and the names under `mcpServers` are read; from `settings.json` only `enabledPlugins`. The director never gets any of this: `usage` and `scorecard` are left out of `director-input.json`, and it may not read `data/usage-*`.
 
+### Rank with Jev (optional, on demand)
+The scorecard has a **Rank with Jev** button. It asks [TypeSafe's Jev model](https://docs.typesafe.ai) to score each skill in use on value for cost, and shows the result as a **Jev rank** column with the day it was ranked.
+
+- **It only runs when you click it and confirm.** Never on a refresh, never on a timer, and the director cannot reach it. The confirm step names the skills and says where they go.
+- **Each click is one paid call** on your TypeSafe key: one request to `api.typesafe.ai` for all skills (it is split only if it would not fit one request). Jev bills input tokens; a run over a dozen skills is a few thousand tokens. The result records the token use Jev reports.
+- **The key** is read from the `TYPESAFE_API_KEY` environment variable when the call is made, and goes into the request's `Authorization` header only. It is never sent to the page, written to the log or saved in a file. Without the variable the button is disabled and says why; set it and restart the Command Center.
+- **What is sent**, for each skill used in the usage window: its name, its description (the `description:` line of its `SKILL.md`, with folder paths replaced by `[path]`), calls, tokens per call, minutes per call, its share of the tokens and the day it was last used, plus the medians for comparison. **Not sent:** transcript text, prompts, file paths, project names, session ids, connectors, sub-agents.
+- **What Jev is asked:** one Score question per skill, "How much value does this skill give for what it costs?", on five levels written as situations (`LEVELS` in `jev.mjs`, where all the wording lives). The ranking itself is made in code: best score first, a tie goes to the skill that costs less per call.
+- **What it is worth:** Jev judges from the descriptions and the usage numbers. It has not seen the work the skills produced, so read the rank as a second opinion on cost against stated purpose, not as a measure of quality. The panel says so next to the result.
+- The result is kept in `data/usage-jev-rank.json` (gitignored) until the next run replaces it. `usage.jevModel` picks the model (default `jev-latest`).
+
 ## The director
 - The installed `claude` CLI, headless: `claude -p --resume <session> --permission-mode dontAsk --settings data/director-settings.json --append-system-prompt-file data/director-prompt.md`, run from the vault so its `CLAUDE.md` applies.
 - Both files are rendered at start from `director/` plus `local/`. `dontAsk` refuses anything not allowed.
@@ -120,19 +131,20 @@ If your vault keeps a log of Claude Code sessions, add `^REFRESH (FULL|CHANGES) 
 | `server.mjs` | HTTP server, events stream, job queue (one director call at a time), token check |
 | `brain/snapshot.py` | Reads the vault into the snapshot; no third-party packages |
 | `brain/usage.py` | Reads the Claude Code transcripts into the `usage` and `scorecard` keys of the snapshot |
+| `jev.mjs` | The on-demand Rank with Jev request: what is sent, the question wording, the ranking |
 | `brain/routines.ps1` | Task Scheduler state for the routines panel |
 | `brain/routines.json`, `brain/areas.json` | Defaults for the demo vault; `local/` overrides them |
 | `director/` | The director's prompt, base permissions and output schemas |
 | `public/` | The page: `index.html`, `app.css`, `app.js`, `map/brainmap.js`; `vendor/3d-force-graph.min.js` is 3d-force-graph 1.80.1 |
 | `local.example/` | A starting `local/` |
 | `examples/demo-vault/` | A small vault in the expected layout |
-| `data/` | Runtime state (gitignored): token, snapshots, director output, `days/<date>.json`, `usage-cache.json`, `usage-daily.json`, `server.log` |
-| `tests/` | `python -m unittest discover -s tests`; `node tests/smoke.mjs ["a prompt"]` against a running server |
+| `data/` | Runtime state (gitignored): token, snapshots, director output, `days/<date>.json`, `usage-cache.json`, `usage-daily.json`, `usage-jev-rank.json`, `server.log` |
+| `tests/` | `python -m unittest discover -s tests`; `node --test tests/jev.test.mjs` (the Jev call is mocked, nothing reaches the network); `node tests/smoke.mjs ["a prompt"]` against a running server |
 
 ## Settings (`local/config.json`)
 `port` (or `node server.mjs --port 4318` for a second copy), `refreshMinutes`, `model` (prompts and day end), `refreshModel` (full refreshes and the compact), `changesModel` (changes-only refreshes), `compactAboveTokens`, `skillsHub` (the note your skills hang off on the map), `briefUrl` plus `briefRoutine` (a link under the brief once that routine fired today), `title`, `subtitle`, `place`, and `"director": false` to read the brain without calling Claude.
 
-`usage` (an object, or `false` to turn the panel off): `claudeHome` and `claudeJson` (default `~/.claude` and `~/.claude.json`), `excludeRoots`, `excludeRootsFile` and `excludeRootsKey`, `connectorNames` (`{"<server name or id>": "label"}`; claude.ai connectors appear under an id, so name them here, and list the ones you want scored even if never called), `hideConnectors`, `windowDays`, `heavyShare`.
+`usage` (an object, or `false` to turn the panel off): `claudeHome` and `claudeJson` (default `~/.claude` and `~/.claude.json`), `excludeRoots`, `excludeRootsFile` and `excludeRootsKey`, `connectorNames` (`{"<server name or id>": "label"}`; claude.ai connectors appear under an id, so name them here, and list the ones you want scored even if never called), `hideConnectors`, `windowDays`, `heavyShare`, `jevModel`.
 
 `/api/health` reports whether the code or `local/` changed since the server started; `Start-CommandCenter.ps1` then restarts it, so reopening the shortcut picks up changes.
 
@@ -140,4 +152,4 @@ If your vault keeps a log of Claude Code sessions, add `^REFRESH (FULL|CHANGES) 
 - The server binds to 127.0.0.1 and rejects other Host headers.
 - Every API call needs the token in `data/token`, which the server puts into the page it serves.
 - The note endpoint serves only `.md` files inside the vault.
-- Nothing is published or hosted. `data/` and `local/` never leave the machine.
+- Nothing is published or hosted. `data/` and `local/` never leave the machine. The one exception is the Rank with Jev button, which sends what its confirm step lists to `api.typesafe.ai`, once per click.

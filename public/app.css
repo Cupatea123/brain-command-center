@@ -223,6 +223,13 @@ b { font-weight: 600; }
 .band.heavy .sc-chip { color: var(--text); border-color: rgba(255,122,26,.45); }
 .band.normal .sc-chip { color: var(--text); }
 .band.never .sc-chip { color: var(--dim); border-color: var(--line); }
+.jev-row { display: flex; align-items: center; gap: 12px; margin: -2px 0 12px; font: 11px/1.5 var(--mono); color: var(--dim); letter-spacing: .02em; }
+.jev-row .btn { flex: none; }
+.usage td.jev { color: var(--accent); cursor: help; }
+.modal-card .say { font-size: 13px; line-height: 1.6; color: var(--text); margin: 0 0 10px; }
+.modal-card .say.soft { color: var(--soft); font-size: 12px; }
+.modal-card .names { font: 11px/1.7 var(--mono); color: var(--soft); background: #0B0C0F; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 0 0 14px; max-height: 160px; overflow: auto; }
+.modal-card .go { display: flex; gap: 10px; justify-content: flex-end; }
 .score-legend { font: 10px/1.6 var(--mono); color: var(--dim); letter-spacing: .04em; margin-top: 10px; }
 .score-off { margin-top: 8px; font: 11px/1.5 var(--mono); color: var(--dim); }
 .score-off summary { cursor: pointer; color: var(--soft); letter-spacing: .04em; }

@@ -344,11 +344,41 @@ def totals(days: dict, since: str = "") -> dict:
 
 # ---------------------------------------------------------------- what is installed
 
+def skill_description(path) -> str:
+    """The `description:` of a SKILL.md, from its frontmatter: one line, a quoted string or a folded block."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            head = fh.read(8000)
+    except (OSError, TypeError):
+        return ""
+    if not head.startswith("---"):
+        return ""
+    lines = head[3:].split("\n---", 1)[0].splitlines()
+    for i, line in enumerate(lines):
+        if not line.startswith("description:"):
+            continue
+        parts = [line[len("description:"):].strip()]
+        if parts[0] in ("", ">", "|", ">-", "|-", ">+", "|+"):
+            parts = []
+        for more in lines[i + 1:]:
+            if more.strip() and not more.startswith((" ", "\t")):
+                break
+            parts.append(more.strip())
+        text = re.sub(r"\s+", " ", " ".join(parts)).strip()
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+            text = text[1:-1]
+        return text[:400]
+    return ""
+
+
 def inventory(cfg: dict, skills_dirs) -> dict:
-    """Skills and connectors on this machine. `off` holds skills of packs that are switched off."""
+    """Skills and connectors on this machine. `off` holds skills of packs that are switched off;
+    `where` is each skill's SKILL.md and `descriptions` what a manifest already says about it."""
     home = Path(cfg["claudeHome"])
     on: dict[str, str] = {}
     off: dict[str, list[str]] = {}
+    where: dict[str, Path] = {}
+    descriptions: dict[str, str] = {}
     connectors: dict[str, str] = {}
     enabled = load_json(home / "settings.json", {}).get("enabledPlugins") or {}
 
@@ -356,15 +386,23 @@ def inventory(cfg: dict, skills_dirs) -> dict:
         for p in sorted(Path(d).glob("*/SKILL.md")):
             if not p.parent.name.startswith("_"):
                 on.setdefault(p.parent.name, "personal")
+                where.setdefault(p.parent.name, p)
     prefix = cfg["syncedSkillsPrefix"]
     for pack in subdirs(home / "skills" / "synced"):
-        names = [s.get("name") for s in load_json(pack / "manifest.json", {}).get("skills", []) if isinstance(s, dict)]
-        for name in names or [p.parent.name for p in pack.glob("*/SKILL.md")]:
+        listed = {s.get("name"): s for s in load_json(pack / "manifest.json", {}).get("skills", []) if isinstance(s, dict)}
+        for name in listed or [p.parent.name for p in pack.glob("*/SKILL.md")]:
             if name:
-                on.setdefault(f"{prefix}:{name}" if prefix else name, "synced")
+                full = f"{prefix}:{name}" if prefix else name
+                on.setdefault(full, "synced")
+                where.setdefault(full, pack / name / "SKILL.md")
+                if listed.get(name, {}).get("description"):
+                    descriptions.setdefault(full, re.sub(r"\s+", " ", str(listed[name]["description"])).strip()[:400])
 
     def pack_skills(folder: Path, pack: str) -> list[str]:
-        return sorted({pack if p.parent == folder else f"{pack}:{p.parent.name}" for p in folder.rglob("SKILL.md")})
+        found = {(pack if p.parent == folder else f"{pack}:{p.parent.name}"): p for p in folder.rglob("SKILL.md")}
+        for name, path in found.items():
+            where.setdefault(name, path)
+        return sorted(found)
 
     plugins = load_json(home / "plugins" / "installed_plugins.json", {}).get("plugins") or {}
     for key, installs in plugins.items():
@@ -394,7 +432,7 @@ def inventory(cfg: dict, skills_dirs) -> dict:
         connectors.setdefault(norm_server(server), "configured")
     for server in cfg["connectorNames"]:
         connectors.setdefault(norm_server(server), "connector")
-    return {"skills": on, "off": off, "connectors": connectors}
+    return {"skills": on, "off": off, "connectors": connectors, "where": where, "descriptions": descriptions}
 
 
 def claude_json(cfg: dict) -> dict:
@@ -475,9 +513,12 @@ def build_usage(cfg: dict, now: dt.datetime | None = None, skills_dirs=()) -> tu
     def item(key: str, name: str, source: str, kind: str, all_calls: int = 0, all_last: int = 0) -> dict:
         w, e = win[kind].get(key), ever[kind].get(key)
         calls30 = w["calls"] if w else 0
-        return {"key": key, "name": name, "source": source, "calls_30d": calls30,
-                "calls_all": max(e["calls"] if e else 0, all_calls), "last": iso(max(e["last"] if e else 0, all_last)),
-                "tokens_per_call": round(tokens(w) / calls30) if calls30 else 0}
+        out = {"key": key, "name": name, "source": source, "calls_30d": calls30,
+               "calls_all": max(e["calls"] if e else 0, all_calls), "last": iso(max(e["last"] if e else 0, all_last)),
+               "tokens_per_call": round(tokens(w) / calls30) if calls30 else 0}
+        if kind == "skills" and calls30:  # what the skill says it is for, for the skills in use
+            out["description"] = inv["descriptions"].get(key) or skill_description(inv["where"].get(key))
+        return out
 
     off_pack = {s: f"pack {pack}" for pack, names in inv["off"].items() for s in names}  # used although its pack is off
     skills = [item(k, k, inv["skills"].get(k) or off_pack.get(k, "built-in"), "skills", recorded.get(k, {}).get("calls", 0), recorded.get(k, {}).get("last", 0))

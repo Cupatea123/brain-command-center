@@ -117,7 +117,8 @@ class Fixture(unittest.TestCase):
         # What is installed.
         for name in ("brain", "unused"):
             (self.home / "skills" / name).mkdir(parents=True)
-            (self.home / "skills" / name / "SKILL.md").write_text("x", encoding="utf-8")
+            (self.home / "skills" / name / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: >\n  Files notes and tasks\n  in the vault.\nuser-invocable: true\n---\n# body TEXT-MARKER\n", encoding="utf-8")
         plug = self.home / "plugins" / "cache" / "m" / "sp" / "1.0"
         (plug / "skills" / "plan").mkdir(parents=True)
         (plug / "skills" / "plan" / "SKILL.md").write_text("x", encoding="utf-8")
@@ -249,6 +250,14 @@ class Scorecard(Fixture):
         self.assertEqual(conns["abc-123"]["name"], "Mail")
         self.assertEqual(s["off"], [{"pack": "sales", "skills": ["sales:pitch"]}])
         self.assertEqual(s["counts"]["skills"]["never used"], 2)
+
+    def test_skills_in_use_carry_their_description(self):
+        _, s = self.build()
+        skills = self.by(s["skills"])
+        self.assertEqual(skills["brain"]["description"], "Files notes and tasks in the vault.")
+        self.assertEqual(skills["loop"]["description"], "")              # built in: no SKILL.md to read
+        self.assertNotIn("description", skills["unused"])                # only the skills in use
+        self.assertEqual(usage.skill_description(self.home / "skills" / "missing" / "SKILL.md"), "")
 
     def test_heavy_is_the_top_fifth_by_tokens_per_call(self):
         items = [{"key": str(i), "calls_30d": 1, "calls_all": 1, "tokens_per_call": i * 100} for i in range(1, 11)]

@@ -7,7 +7,7 @@
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const TAG_COLOR = { decision: '#A98BF5', task: '#FF7A1A', todo: '#4CC38A', routine: '#6EA8FE', deadline: '#F2B53A', system: '#8E8C84' };
 
-  let S = { snapshot: null, director: null, day: null, session: null, sync: null, status: {}, config: {} };
+  let S = { snapshot: null, director: null, day: null, session: null, sync: null, jev: null, status: {}, config: {} };
   let map = null;
   const chats = new Map();
 
@@ -227,10 +227,10 @@
     const d = Math.round((new Date((S.snapshot?.today || iso.slice(0, 10)) + 'T00:00:00') - new Date(iso.slice(0, 10) + 'T00:00:00')) / 864e5);
     return d <= 0 ? 'today' : d === 1 ? 'yesterday' : d < 60 ? d + ' d ago' : `${ddmm(iso)}.${iso.slice(2, 4)}`;
   }
-  function usageTable(id, rows, bands, none) {
+  function usageTable(id, rows, bands, none, ranks) {  // ranks: the Jev ranking by skill, for the skills table only
     const tb = $(id); tb.innerHTML = '';
     $(id + '-n').textContent = rows.length ? ' ' + rows.length : '';
-    if (!rows.length) { const tr = el('tr', 'none'); const td = el('td', '', none); td.colSpan = 5; tr.appendChild(td); tb.appendChild(tr); return; }
+    if (!rows.length) { const tr = el('tr', 'none'); const td = el('td', '', none); td.colSpan = ranks ? 6 : 5; tr.appendChild(td); tb.appendChild(tr); return; }
     for (const r of rows) {
       const tr = el('tr');
       const name = named('td', bands[r.key] === 'heavy' ? 'heavy' : '', r.name);
@@ -239,6 +239,12 @@
       tok.title = `${num(r.tokens)} new tokens · ${num(r.cache_read)} re-read from cache` + (r.calls ? ` · ${num(Math.round(r.tokens / r.calls))} per call` : '');
       const last = el('td', '', lastUsed(r.last)); last.title = r.last ? r.last.replace('T', ' ') : 'called before this window';
       tr.append(name, el('td', '', r.calls), last, tok, el('td', '', fmtDur(r.ms)));
+      if (ranks) {
+        const k = ranks[r.key];
+        const td = el('td', k ? 'jev' : '', k ? '#' + k.rank : '–');
+        td.title = k ? `Jev score ${k.score} of ${S.jev.rank.levels.length - 1}${k.confidence === null ? '' : ' · confidence ' + k.confidence}${k.level === null ? '' : ' · "' + S.jev.rank.levels[k.level] + '"'}` : 'Not in the last Jev ranking.';
+        tr.appendChild(td);
+      }
       tb.appendChild(tr);
     }
   }
@@ -251,7 +257,8 @@
     $('usage-meta').textContent = `last ${u.window_days} days · ${u.files} sessions read${left ? ` · ${left} left out` : ''}`;
     $('usage-meta').title = `Since ${u.since}. History kept from ${u.history_from || '–'}. Left out: ${u.excluded?.work || 0} work, ${u.excluded?.director || 0} director.`;
     const bandOf = (items) => Object.fromEntries(items.map((i) => [i.key, i.band]));
-    usageTable('usage-skills', u.skills, bandOf(sc.skills), 'No skill ran in this window.');
+    usageTable('usage-skills', u.skills, bandOf(sc.skills), 'No skill ran in this window.', Object.fromEntries((S.jev?.rank?.ranks || []).map((k) => [k.key, k])));
+    renderJev();
     usageTable('usage-connectors', u.connectors, bandOf(sc.connectors), 'No connector was called in this window.');
     usageTable('usage-agents', u.agents, {}, 'No sub-agent ran in this window.');
 
@@ -291,6 +298,45 @@
       const d = el('div', 'pack'); d.append(el('b', '', `${p.pack} (${p.skills.length})`), document.createTextNode(' ' + p.skills.map((s) => s.split(':').pop()).join(', ')));
       list.appendChild(d);
     }
+  }
+
+  // Rank with Jev: one call per click, after the confirm step. The server holds the key; the page never sees it.
+  function renderJev() {
+    const j = S.jev || {}, btn = $('btn-jev'), k = j.rank;
+    btn.disabled = !j.available || !!j.busy;
+    btn.textContent = j.busy ? 'Asking Jev…' : k ? 'Rank with Jev again' : 'Rank with Jev';
+    btn.title = j.available ? `One paid call to ${j.host}. Nothing is sent until you confirm.` : (j.reason || '');
+    const when = k ? `Ranked on ${dayName(localDay(k.at))}, ${k.sent.skills} skills, ${num(k.usage.input_tokens)} input tokens (${k.model}). ${k.basis}` : '';
+    $('jev-note').textContent = [j.available ? '' : j.reason, when || (j.available ? 'Not ranked yet. Sends only when you click and confirm.' : '')].filter(Boolean).join(' ');
+    $('jev-th').title = k ? `Ranked on ${k.at.slice(0, 10)}. ${k.basis} Ties go to the skill that costs less per call.` : 'Not ranked yet.';
+  }
+  function localDay(iso) { const d = new Date(iso); return isNaN(d) ? iso.slice(0, 10) : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+  function confirmJev() {
+    const j = S.jev || {};
+    if (!j.available) return;
+    const n = j.skills.length;
+    const body = $('modal-body'); body.innerHTML = '';
+    body.appendChild(el('h2', '', 'Rank with Jev'));
+    body.appendChild(el('div', 'sub', `ONE CALL TO ${j.host.toUpperCase()}`));
+    body.appendChild(el('p', 'say', `This sends ${n} skill${n === 1 ? '' : 's'} to ${j.host}: for each one its name, its description and its usage numbers (${j.fields.slice(2).join(', ')}).`));
+    body.appendChild(el('div', 'names', j.skills.join(' · ')));
+    body.appendChild(el('p', 'say soft', 'Not sent: transcript text, prompts, file paths, project names, session ids. It is a paid call on your TypeSafe key. Jev scores each skill on value for cost from this alone; it does not see the work the skills produced.'));
+    const go = el('div', 'go');
+    const no = el('button', 'btn ghost', 'Cancel'); no.addEventListener('click', () => { $('modal').hidden = true; });
+    const yes = el('button', 'btn accent', `Send ${n} skill${n === 1 ? '' : 's'} to Jev`);
+    yes.addEventListener('click', async () => {
+      $('modal').hidden = true;
+      S.jev = { ...S.jev, busy: true }; renderJev();
+      try {
+        const r = await fetch('/api/jev/rank', { method: 'POST', headers: { 'x-cc-token': TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true, count: n }) });
+        const out = await r.json();
+        if (!r.ok) throw new Error(out.error || r.status);
+        toast(`Jev ranked ${out.ranks.length} skills (${num(out.usage.input_tokens)} input tokens).`);
+      } catch (e) { toast('Jev ranking failed: ' + e.message, 10000); }
+      const st = await api('/api/state'); S.jev = st.jev; renderUsage();
+    });
+    go.append(no, yes); body.appendChild(go);
+    $('modal').hidden = false;
   }
 
   // ---------------------------------------------------------------- map wiring
@@ -429,7 +475,7 @@
   }
   async function reloadSnapshot() {
     S.snapshot = await api('/api/snapshot');
-    const st = await api('/api/state'); S.session = st.session; S.sync = st.sync;
+    const st = await api('/api/state'); S.session = st.session; S.sync = st.sync; S.jev = st.jev;
     renderStatus(); renderToday(); renderRoutines(); renderProjects(); renderNeeds(); renderUsage(); renderMapChrome();
     map.setData(S.snapshot);
   }
@@ -441,6 +487,7 @@
     es.addEventListener('director-skip', (e) => { const d = JSON.parse(e.data); toast(`Brain unchanged since ${hhmm(d.last)}; director skipped. Refresh forces a run.`); });
     es.addEventListener('chat', (e) => onChat(JSON.parse(e.data)));
     es.addEventListener('dayend', (e) => { const d = JSON.parse(e.data); showDayend(d, d.date); });
+    es.addEventListener('jev', (e) => { S.jev = JSON.parse(e.data); renderUsage(); });
     es.addEventListener('session', () => { toast('New director session started.'); api('/api/state').then((st) => { S.session = st.session; renderStatus(); }); });
     es.addEventListener('error', (e) => { if (e.data) { const d = JSON.parse(e.data); toast(`${d.label} failed: ${d.message}`, 9000); } });
   }
@@ -463,6 +510,7 @@
     $('map-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const m = map.setSearch(e.target.value); if (m[0]) map.focus(m[0].id); } });
     $('btn-refresh').addEventListener('click', () => api('/api/refresh', { method: 'POST', body: JSON.stringify({ force: true }) }).then((r) => toast(r.queued ? 'Refresh queued: reading the brain, then the director.' : 'A refresh is already running.')).catch((e) => toast(e.message)));
     $('btn-dayend').addEventListener('click', () => api('/api/dayend', { method: 'POST', body: '{}' }).then((r) => toast(r.queued ? 'Summarising your day. It opens here when the director is done.' : 'Already summarising.')).catch((e) => toast(e.message)));
+    $('btn-jev').addEventListener('click', confirmJev);
     $('btn-days').addEventListener('click', () => showDays().catch((e) => toast(e.message)));
     $('btn-menu').addEventListener('click', () => { $('menu').hidden = !$('menu').hidden; });
     $('menu-reset').addEventListener('click', () => { $('menu').hidden = true; api('/api/director/reset', { method: 'POST', body: '{}' }).catch((e) => toast(e.message)); });

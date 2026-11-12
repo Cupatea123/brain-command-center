@@ -8,6 +8,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { candidates, rankWithJev, JEV_HOST, SENT_FIELDS, BASIS } from './jev.mjs';
 
 const CC = path.dirname(fileURLToPath(import.meta.url));
 const DATA = path.join(CC, 'data');
@@ -54,7 +55,7 @@ CONFIG.title = CONFIG.title || `${CONFIG.owner} OS`.toUpperCase();
 // Claude Code usage (brain/usage.py): which skills, connectors and sub-agents get used, from the
 // session transcripts. excludeRootsFile names a JSON file whose excludeRootsKey lists more folders.
 const USER_HOME = process.env.USERPROFILE || process.env.HOME || '';
-const USAGE_DEFAULTS = { claudeHome: path.join(USER_HOME, '.claude'), claudeJson: path.join(USER_HOME, '.claude.json'), excludeRoots: [], excludeRootsFile: '', excludeRootsKey: 'work_roots', connectorNames: {}, hideConnectors: ['ccd_*'], windowDays: 30 };
+const USAGE_DEFAULTS = { claudeHome: path.join(USER_HOME, '.claude'), claudeJson: path.join(USER_HOME, '.claude.json'), excludeRoots: [], excludeRootsFile: '', excludeRootsKey: 'work_roots', connectorNames: {}, hideConnectors: ['ccd_*'], windowDays: 30, jevModel: 'jev-latest' };
 CONFIG.usage = CONFIG.usage === false ? null : { ...USAGE_DEFAULTS, ...CONFIG.usage };
 const STARTED = new Date().toISOString();
 
@@ -67,6 +68,7 @@ const P = {
   diff: path.join(DATA, 'director-diff.json'),
   routines: path.join(DATA, 'routines.json'),
   usageCfg: path.join(DATA, 'usage-config.json'),
+  jevRank: path.join(DATA, 'usage-jev-rank.json'),
   director: path.join(DATA, 'director.json'),
   log: path.join(DATA, 'server.log'),
   directorPrompt: path.join(DATA, 'director-prompt.md'),
@@ -82,7 +84,7 @@ const P = {
   refreshSchema: path.join(CC, 'director', 'schemas', 'refresh.schema.json'),
   dayendSchema: path.join(CC, 'director', 'schemas', 'dayend.schema.json'),
 };
-const WATCHED = ['server.mjs', 'brain/snapshot.py', 'brain/usage.py', 'director/director.md', 'director/settings.json', 'local/config.json', 'local/director.md', 'local/settings.json'];
+const WATCHED = ['server.mjs', 'jev.mjs', 'brain/snapshot.py', 'brain/usage.py', 'director/director.md', 'director/settings.json', 'local/config.json', 'local/director.md', 'local/settings.json'];
 const codeStamp = () => Math.max(...WATCHED.map((f) => { try { return fs.statSync(path.join(CC, f)).mtimeMs; } catch { return 0; } }));
 const CODE_AT_START = codeStamp();
 
@@ -235,6 +237,39 @@ async function readBrain(prevPath = null) {
   log(`brain read in ${((Date.now() - t0) / 1000).toFixed(1)}s:`, r.out.trim());
   broadcast('snapshot', { at: state.lastSnapshotAt, hash: snap.hash });
   return snap;
+}
+
+// ------------------------------------------------------------------ rank with Jev (on demand only)
+// One paid call to api.typesafe.ai per click on the scorecard's button, after its confirm step.
+// Nothing else calls runJevRank(): no refresh, no timer, and the director has no way to reach it.
+// The key is read from the TYPESAFE_API_KEY environment variable when the call is made and goes
+// into the Authorization header only: not to the page, the log or any file.
+let jevBusy = false;
+function jevStatus() {
+  const skills = CONFIG.usage ? candidates(readJson(P.snapshot, null)).map((s) => s.name) : [];
+  const reason = !CONFIG.usage ? 'Usage is turned off in config.json.'
+    : !process.env.TYPESAFE_API_KEY ? 'Set the TYPESAFE_API_KEY environment variable and restart the Command Center.'
+    : !skills.length ? 'No skill was used in the usage window.' : '';
+  return { available: !reason, reason, busy: jevBusy, host: JEV_HOST, fields: SENT_FIELDS, basis: BASIS, skills, rank: readJson(P.jevRank, null) };
+}
+async function runJevRank(count) {
+  const st = jevStatus();
+  if (!st.available) return { code: 400, body: { error: st.reason } };
+  if (jevBusy) return { code: 409, body: { error: 'A Jev run is already going.' } };
+  if (count !== st.skills.length) return { code: 409, body: { error: `The list changed since you confirmed (${st.skills.length} skills now). Confirm again.` } };
+  jevBusy = true;
+  try {
+    const result = await rankWithJev({ snapshot: readJson(P.snapshot, null), apiKey: process.env.TYPESAFE_API_KEY, model: CONFIG.usage.jevModel || 'jev-latest' });
+    writeJson(P.jevRank, result);
+    log(`jev rank: ${result.sent.skills} skills in ${result.requests} request(s), ${result.usage.input_tokens} input tokens, model ${result.model}`);
+    return { code: 200, body: result };
+  } catch (e) {
+    log('jev rank failed:', e.message);
+    return { code: 502, body: { error: e.message } };
+  } finally {
+    jevBusy = false;
+    broadcast('jev', jevStatus());
+  }
 }
 
 // ------------------------------------------------------------------ day files
@@ -525,7 +560,7 @@ const server = http.createServer(async (req, res) => {
         const today = localDate();
         return send(res, 200, { snapshot: readJson(P.snapshot, null), director: readJson(P.director, null), day: readDay(today), status,
           session: { id: state.sessionId, started: state.sessionStarted, lastDirectorAt: state.lastDirectorAt, lastSnapshotAt: state.lastSnapshotAt, cost: state.sessionCost || 0, contextTokens: state.contextTokens || 0, model: CONFIG.model || 'default' },
-          sync: lastSync(), config: PAGE() });
+          sync: lastSync(), jev: jevStatus(), config: PAGE() });
       }
       if (p === '/api/snapshot' && req.method === 'GET') return send(res, 200, readJson(P.snapshot, null));
       if (p === '/api/health' && req.method === 'GET') {
@@ -550,6 +585,12 @@ const server = http.createServer(async (req, res) => {
         const id = crypto.randomUUID();
         enqueue(null, 'prompt', () => directorPrompt(id, text));
         return send(res, 202, { id });
+      }
+      if (p === '/api/jev/rank' && req.method === 'POST') {
+        const b = await body(req);
+        if (b.confirm !== true) return send(res, 400, { error: 'not confirmed: nothing was sent' });
+        const r = await runJevRank(Number(b.count));
+        return send(res, r.code, r.body);
       }
       if (p === '/api/dayend' && req.method === 'POST') {
         const ok = enqueue('dayend', 'done for today', () => directorDayend());

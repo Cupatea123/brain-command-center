@@ -142,7 +142,7 @@
       <div class="usage-grid">
         <div>
           <div class="usage-h">SKILLS<span class="n" id="usage-skills-n"></span></div>
-          <table class="usage"><thead><tr><th>SKILL</th><th>CALLS</th><th>LAST USED</th><th title="New tokens: input, output and cache writes. Hover a number for what was re-read from cache.">TOKENS</th><th title="Time the skill was driving the session">TIME</th></tr></thead><tbody id="usage-skills"></tbody></table>
+          <table class="usage"><thead><tr><th>SKILL</th><th>CALLS</th><th>LAST USED</th><th title="New tokens: input, output and cache writes. Hover a number for what was re-read from cache.">TOKENS</th><th title="Time the skill was driving the session">TIME</th><th id="jev-th" title="Not ranked yet. Rank with Jev, under the scorecard heading, asks for one.">JEV RANK</th></tr></thead><tbody id="usage-skills"></tbody></table>
         </div>
         <div>
           <div class="usage-h">CONNECTORS<span class="n" id="usage-connectors-n"></span></div>
@@ -154,6 +154,7 @@
         </div>
       </div>
       <div class="panel-h sub">SCORECARD <span class="h-right" id="score-meta"></span></div>
+      <div class="jev-row"><button class="btn ghost" id="btn-jev" disabled>Rank with Jev</button><span id="jev-note"></span></div>
       <div class="usage-grid" id="scorecard"></div>
       <div class="score-legend" id="score-legend"></div>
       <details class="score-off" id="score-off" hidden><summary id="score-off-sum"></summary><div id="score-off-list"></div></details>

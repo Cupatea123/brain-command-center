@@ -21,7 +21,13 @@
   "refreshModel": "sonnet",
   "changesModel": "haiku",
   "usage": {
-    "excludeRoots": [],
-    "connectorNames": {}
+    "excludeRoots": [
+      "D:\\Work"
+    ],
+    "connectorNames": {
+      "<server name or id, as the USAGE panel shows it>": "Gmail"
+    },
+    "windowDays": 30,
+    "jevModel": "jev-latest"
   }
 }
