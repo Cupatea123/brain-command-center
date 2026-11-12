@@ -8,6 +8,10 @@ the director reads a compact copy of it.
   python snapshot.py --vault <dir> --out <snapshot.json> [--routines <routines.json>]
                      [--routines-cfg <cfg>] [--areas-cfg <cfg>] [--skills <dir> ...]
                      [--owner <name>] [--owner-key <key>] [--activity <dir>] [--prev <file>]
+                     [--usage-config <file>]
+
+`--usage-config` adds the `usage` and `scorecard` keys (see usage.py). They go to the page only:
+the director's copy leaves them out.
 
 No third-party packages: the frontmatter reader below handles the subset vaults use.
 """
@@ -677,7 +681,7 @@ def build_graph(notes: list[dict], areas: Areas, routines: list[dict], apps: lis
 
 def build(vault: Path, win: dict, now: dt.datetime | None = None, routines_cfg: dict | None = None,
           areas_cfg: dict | None = None, skills_dirs: list[Path] | None = None, owner: str = "", owner_key: str = "",
-          activity_dir: Path | None = None, skills_hub: str = "") -> dict:
+          activity_dir: Path | None = None, skills_hub: str = "", usage_cfg: dict | None = None) -> dict:
     now = now or dt.datetime.now()
     today = now.date()
     routines_cfg = routines_cfg if routines_cfg is not None else load_json(HERE / "routines.json", {})
@@ -789,6 +793,7 @@ def build(vault: Path, win: dict, now: dt.datetime | None = None, routines_cfg: 
     area_list = [{"key": a["key"], "label": a["label"], "color": a["color"], "count": area_counts.get(a["key"], 0)} for a in areas_cfg["areas"]]
 
     total_runs = sum(len(r["runs"]) for r in routines)
+    usage, scorecard = claude_usage(usage_cfg, now, skills_dirs)
     vault_mtime = max((n["mtime"] for n in notes), default=0)
 
     snap = {
@@ -821,13 +826,27 @@ def build(vault: Path, win: dict, now: dt.datetime | None = None, routines_cfg: 
         "activity_today": activity_today(activity_dir, today, vault),
         "areas": area_list,
         "graph": graph,
+        "usage": usage,
+        "scorecard": scorecard,
     }
     snap["hash"] = change_key(snap)
     return snap
 
 
+def claude_usage(cfg: dict | None, now: dt.datetime, skills_dirs: list[Path] | None):
+    """The `usage` and `scorecard` keys, or (None, None) without a config. A failure here must not
+    take the dashboard down, so it is reported in the key instead."""
+    if not cfg:
+        return None, None
+    try:
+        import usage as usage_mod
+        return usage_mod.build_usage(cfg, now, skills_dirs or [])
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}, None
+
+
 def director_view(snap: dict) -> dict:
-    """The compact copy the director reads: no graph, routines without run lists, fewer sessions."""
+    """The compact copy the director reads: no graph, no usage, routines without run lists, fewer sessions."""
     today = dt.date.fromisoformat(snap["today"])
     week_ago = (today - dt.timedelta(days=7)).isoformat()
     routines = []
@@ -836,12 +855,17 @@ def director_view(snap: dict) -> dict:
         routines.append({k: r[k] for k in ("label", "task", "host", "owner", "schedule", "status", "time", "last", "last_result", "next", "today_runs")}
                         | {"runs_7d": len(recent), "failed_runs_7d": sum(1 for x in recent if not x["ok"]),
                            "last_failure": next((x["at"] for x in reversed(recent) if not x["ok"]), "")})
-    view = {k: v for k, v in snap.items() if k not in ("graph", "routines", "sessions", "areas", "activity_today", "tasks")}
+    view = {k: v for k, v in snap.items() if k not in ("graph", "routines", "sessions", "areas", "activity_today", "tasks", "usage", "scorecard")}
     view["routines"] = routines
     view["sessions"] = [{k: s[k] for k in ("slug", "date", "projects", "outcome", "summary")} for s in snap["sessions"][:15]]
     view["tasks"] = [{k: t[k] for k in ("id", "title", "status", "owner", "priority", "approval", "project", "blocked_on", "due")} for t in snap["tasks"]]
     view["areas"] = [{"key": a["key"], "label": a["label"], "count": a["count"]} for a in snap["areas"]]
     return view
+
+
+def usage_config(path: str | None, data_dir: Path) -> dict | None:
+    cfg = load_json(Path(path), None) if path else None
+    return {"dataDir": str(data_dir), **cfg} if isinstance(cfg, dict) else None
 
 
 def write_atomic(path: Path, obj) -> None:
@@ -865,11 +889,13 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--owner-key", default="", help="the task `owner:` value that means you (default: owner, lowercased)")
     ap.add_argument("--activity", help="folder of <date>.jsonl hook logs (prompts and file writes)")
     ap.add_argument("--prev", help="the director-input.json the director last saw; writes director-diff.json")
+    ap.add_argument("--usage-config", help="JSON for usage.py (claudeHome, claudeJson, dataDir, excludeRoots, ...)")
     a = ap.parse_args(argv)
     snap = build(Path(a.vault), load_json(Path(a.routines) if a.routines else None, {}),
                  routines_cfg=load_json(Path(a.routines_cfg), {}), areas_cfg=load_json(Path(a.areas_cfg), None),
                  skills_dirs=[Path(s) for s in a.skills], owner=a.owner, owner_key=a.owner_key,
-                 activity_dir=Path(a.activity) if a.activity else None, skills_hub=a.skills_hub)
+                 activity_dir=Path(a.activity) if a.activity else None, skills_hub=a.skills_hub,
+                 usage_cfg=usage_config(a.usage_config, Path(a.out).parent))
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     write_atomic(out, snap)
@@ -881,7 +907,8 @@ def main(argv: list[str]) -> int:
         write_atomic(out.with_name("director-diff.json"), {"since": (prev or {}).get("generated", ""), "diff": diff})
     s = snap["stats"]
     print(f"snapshot: {s['files']} files, {s['links']} links, {s['runs']} runs, {s['todo_open']} open TODO, {s['tasks_open']} open tasks, "
-          f"{s['projects_live']} live owners, {len(snap['needs'])} needs, routines {snap['routines_today']['fired']}/{snap['routines_today']['scheduled']} today, hash {snap['hash']}")
+          f"{s['projects_live']} live owners, {len(snap['needs'])} needs, routines {snap['routines_today']['fired']}/{snap['routines_today']['scheduled']} today, hash {snap['hash']}"
+          + (f", usage {u.get('error') or str(u['files']) + ' transcripts (' + str(u['parsed']) + ' parsed) in ' + str(u['took_ms']) + ' ms'}" if (u := snap["usage"]) else ""))
     return 0
 
 

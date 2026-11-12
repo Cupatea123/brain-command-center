@@ -29,6 +29,8 @@ check('api refuses a foreign Host header', (await req('/api/state', { headers: {
 const state = await req('/api/state', { headers: { 'x-cc-token': TOKEN } });
 const st = JSON.parse(state.body);
 check('state has a snapshot', !!st.snapshot, `files=${st.snapshot?.stats?.files} needs=${st.snapshot?.needs?.length}`);
+const usage = st.snapshot?.usage;
+check('usage is read without an error', !usage || !usage.error, usage ? `skills=${usage.skills?.length} connectors=${usage.connectors?.length} agents=${usage.agents?.length} in ${usage.took_ms} ms` : 'off');
 console.log(`INFO  director output: ${st.director?.at || 'none yet'}`);
 check('note endpoint refuses paths outside the vault', (await req('/api/note?rel=' + encodeURIComponent('..\\..\\secret.md'), { headers: { 'x-cc-token': TOKEN } })).status === 404);
 

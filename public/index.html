@@ -136,6 +136,28 @@
         <ol class="feed compact" id="todo"></ol>
       </section>
     </div>
+
+    <section class="panel" id="usage-panel" hidden>
+      <div class="panel-h"><span class="ico">◔</span>USAGE <span class="h-right" id="usage-meta">–</span></div>
+      <div class="usage-grid">
+        <div>
+          <div class="usage-h">SKILLS<span class="n" id="usage-skills-n"></span></div>
+          <table class="usage"><thead><tr><th>SKILL</th><th>CALLS</th><th>LAST USED</th><th title="New tokens: input, output and cache writes. Hover a number for what was re-read from cache.">TOKENS</th><th title="Time the skill was driving the session">TIME</th></tr></thead><tbody id="usage-skills"></tbody></table>
+        </div>
+        <div>
+          <div class="usage-h">CONNECTORS<span class="n" id="usage-connectors-n"></span></div>
+          <table class="usage"><thead><tr><th>CONNECTOR</th><th>CALLS</th><th>LAST USED</th><th title="New tokens in the responses that read the connector's results">TOKENS</th><th title="Time spent waiting for the connector's tools">TIME</th></tr></thead><tbody id="usage-connectors"></tbody></table>
+        </div>
+        <div>
+          <div class="usage-h">SUB-AGENTS<span class="n" id="usage-agents-n"></span></div>
+          <table class="usage"><thead><tr><th>TYPE</th><th>RUNS</th><th>LAST USED</th><th title="New tokens the sub-agents spent in their own context">TOKENS</th><th title="Time the sub-agents were working">TIME</th></tr></thead><tbody id="usage-agents"></tbody></table>
+        </div>
+      </div>
+      <div class="panel-h sub">SCORECARD <span class="h-right" id="score-meta"></span></div>
+      <div class="usage-grid" id="scorecard"></div>
+      <div class="score-legend" id="score-legend"></div>
+      <details class="score-off" id="score-off" hidden><summary id="score-off-sum"></summary><div id="score-off-list"></div></details>
+    </section>
   </section>
 
   <!-- RIGHT -->

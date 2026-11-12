@@ -43,6 +43,7 @@ const CONFIG = {
   refreshModel: 'sonnet',   // full refreshes (first of the day) and the daily compact
   changesModel: 'haiku',    // changes-only refreshes (most of them)
   compactAboveTokens: 120000, // first refresh of the day compacts the session when its context is larger
+  usage: {},                // the USAGE panel (see USAGE_DEFAULTS below); false turns it off
   ...readJson(localFile('config.json', ''), {}),
 };
 { const i = process.argv.indexOf('--port'); if (i > 0 && process.argv[i + 1]) CONFIG.port = Number(process.argv[i + 1]); }
@@ -50,6 +51,11 @@ CONFIG.vault = path.resolve(CC, CONFIG.vault);
 CONFIG.directorCwd = CONFIG.directorCwd || CONFIG.vault;
 CONFIG.obsidianVault = CONFIG.obsidianVault || path.basename(CONFIG.vault);
 CONFIG.title = CONFIG.title || `${CONFIG.owner} OS`.toUpperCase();
+// Claude Code usage (brain/usage.py): which skills, connectors and sub-agents get used, from the
+// session transcripts. excludeRootsFile names a JSON file whose excludeRootsKey lists more folders.
+const USER_HOME = process.env.USERPROFILE || process.env.HOME || '';
+const USAGE_DEFAULTS = { claudeHome: path.join(USER_HOME, '.claude'), claudeJson: path.join(USER_HOME, '.claude.json'), excludeRoots: [], excludeRootsFile: '', excludeRootsKey: 'work_roots', connectorNames: {}, hideConnectors: ['ccd_*'], windowDays: 30 };
+CONFIG.usage = CONFIG.usage === false ? null : { ...USAGE_DEFAULTS, ...CONFIG.usage };
 const STARTED = new Date().toISOString();
 
 const P = {
@@ -60,6 +66,7 @@ const P = {
   lastInput: path.join(DATA, 'last-director-input.json'),
   diff: path.join(DATA, 'director-diff.json'),
   routines: path.join(DATA, 'routines.json'),
+  usageCfg: path.join(DATA, 'usage-config.json'),
   director: path.join(DATA, 'director.json'),
   log: path.join(DATA, 'server.log'),
   directorPrompt: path.join(DATA, 'director-prompt.md'),
@@ -75,7 +82,7 @@ const P = {
   refreshSchema: path.join(CC, 'director', 'schemas', 'refresh.schema.json'),
   dayendSchema: path.join(CC, 'director', 'schemas', 'dayend.schema.json'),
 };
-const WATCHED = ['server.mjs', 'brain/snapshot.py', 'director/director.md', 'director/settings.json', 'local/config.json', 'local/director.md', 'local/settings.json'];
+const WATCHED = ['server.mjs', 'brain/snapshot.py', 'brain/usage.py', 'director/director.md', 'director/settings.json', 'local/config.json', 'local/director.md', 'local/settings.json'];
 const codeStamp = () => Math.max(...WATCHED.map((f) => { try { return fs.statSync(path.join(CC, f)).mtimeMs; } catch { return 0; } }));
 const CODE_AT_START = codeStamp();
 
@@ -189,6 +196,21 @@ function run(cmd, args, { cwd = CC, input = null, onLine = null, timeoutMs = 15 
 const git = (args, opts = {}) => run(EXE.git, ['-C', CONFIG.vault, ...args], { timeoutMs: 120000, ...opts });
 
 // ------------------------------------------------------------------ the brain
+// The paths usage.py reads, written for snapshot.py. Returns false (no usage this time) when the
+// file that lists the folders to leave out cannot be read: better no panel than the wrong sessions in it.
+function writeUsageConfig() {
+  const u = CONFIG.usage;
+  if (!u) return false;
+  let roots = [...(u.excludeRoots || [])];
+  if (u.excludeRootsFile) {
+    const more = readJson(u.excludeRootsFile, {})[u.excludeRootsKey || 'work_roots'];
+    if (!Array.isArray(more)) { log(`usage skipped: no "${u.excludeRootsKey}" list in ${u.excludeRootsFile}`); return false; }
+    roots = roots.concat(more);
+  }
+  writeJson(P.usageCfg, { claudeHome: u.claudeHome, claudeJson: u.claudeJson, excludeRoots: roots, connectorNames: u.connectorNames || {}, hideConnectors: u.hideConnectors || [], windowDays: u.windowDays || 30, heavyShare: u.heavyShare });
+  return true;
+}
+
 async function readBrain(prevPath = null) {
   setStatus({ phase: 'reading brain' });
   const t0 = Date.now();
@@ -202,6 +224,7 @@ async function readBrain(prevPath = null) {
   if (CONFIG.skillsHub) args.push('--skills-hub', CONFIG.skillsHub);
   if (CONFIG.activityDir) args.push('--activity', CONFIG.activityDir);
   if (prevPath && fs.existsSync(prevPath)) args.push('--prev', prevPath);
+  if (writeUsageConfig()) args.push('--usage-config', P.usageCfg);
   const r = await run(EXE.python, args, { timeoutMs: 120000 });
   if (r.code !== 0) throw new Error('snapshot failed: ' + (r.err || r.out).slice(-800));
   const snap = readJson(P.snapshot, null);

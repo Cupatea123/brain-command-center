@@ -19,5 +19,9 @@
   "port": 4317,
   "model": "sonnet",
   "refreshModel": "sonnet",
-  "changesModel": "haiku"
+  "changesModel": "haiku",
+  "usage": {
+    "excludeRoots": [],
+    "connectorNames": {}
+  }
 }

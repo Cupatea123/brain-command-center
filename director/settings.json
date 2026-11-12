@@ -33,6 +33,7 @@
       "Read(**/.env.*)",
       "Read(**/.credentials.json)",
       "Read(**/secrets/**)",
+      "Read({{DATA}}/usage-*)",
       "Edit(**/.obsidian/**)",
       "Write(**/.obsidian/**)",
       "Edit(**/.git/**)",

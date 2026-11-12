@@ -208,6 +208,91 @@
     if (!markerDone) { const tr = el('tr', 'now'); const td = el('td'); td.colSpan = 3; td.appendChild(el('span', '', now)); tr.appendChild(td); tb.appendChild(tr); }
   }
 
+  // ---------------------------------------------------------------- usage and scorecard
+  // Counted in code from the Claude Code transcripts (snapshot.usage, snapshot.scorecard); the director never sees it.
+  const BAND = [['heavy', 'HEAVY', 'heavy'], ['normal', 'NORMAL', 'normal'], ['under-used', 'UNDER-USED', 'under'], ['never used', 'NEVER USED', 'never']];
+  const num = (n) => (n || 0).toLocaleString('en-US');
+  // `pack:skill` with the pack dimmed, so a long list reads by skill name.
+  function named(tag, cls, name) { const i = name.lastIndexOf(':'); const e = el(tag, cls); if (i > 0) e.appendChild(el('span', 'ns', name.slice(0, i + 1))); e.appendChild(document.createTextNode(name.slice(i + 1))); return e; }
+  function fmtTok(n) { n = n || 0; return n >= 1e7 ? Math.round(n / 1e6) + 'M' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n); }
+  function fmtDur(ms) {
+    const s = Math.round((ms || 0) / 1000);
+    if (s < 1) return '–';
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60);
+    return m < 60 ? `${m}m ${String(s % 60).padStart(2, '0')}s` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+  }
+  function lastUsed(iso) {
+    if (!iso) return '–';
+    const d = Math.round((new Date((S.snapshot?.today || iso.slice(0, 10)) + 'T00:00:00') - new Date(iso.slice(0, 10) + 'T00:00:00')) / 864e5);
+    return d <= 0 ? 'today' : d === 1 ? 'yesterday' : d < 60 ? d + ' d ago' : `${ddmm(iso)}.${iso.slice(2, 4)}`;
+  }
+  function usageTable(id, rows, bands, none) {
+    const tb = $(id); tb.innerHTML = '';
+    $(id + '-n').textContent = rows.length ? ' ' + rows.length : '';
+    if (!rows.length) { const tr = el('tr', 'none'); const td = el('td', '', none); td.colSpan = 5; tr.appendChild(td); tb.appendChild(tr); return; }
+    for (const r of rows) {
+      const tr = el('tr');
+      const name = named('td', bands[r.key] === 'heavy' ? 'heavy' : '', r.name);
+      name.title = [r.name !== r.key ? r.key : '', bands[r.key] || ''].filter(Boolean).join(' · ');
+      const tok = el('td', 'tok', fmtTok(r.tokens));
+      tok.title = `${num(r.tokens)} new tokens · ${num(r.cache_read)} re-read from cache` + (r.calls ? ` · ${num(Math.round(r.tokens / r.calls))} per call` : '');
+      const last = el('td', '', lastUsed(r.last)); last.title = r.last ? r.last.replace('T', ' ') : 'called before this window';
+      tr.append(name, el('td', '', r.calls), last, tok, el('td', '', fmtDur(r.ms)));
+      tb.appendChild(tr);
+    }
+  }
+  function renderUsage() {
+    const u = S.snapshot?.usage, sc = S.snapshot?.scorecard;
+    $('usage-panel').hidden = !u;
+    if (!u) return;
+    if (u.error || !sc) { $('usage-meta').textContent = 'could not read the transcripts: ' + (u.error || 'no scorecard'); return; }
+    const left = (u.excluded?.work || 0) + (u.excluded?.director || 0);
+    $('usage-meta').textContent = `last ${u.window_days} days · ${u.files} sessions read${left ? ` · ${left} left out` : ''}`;
+    $('usage-meta').title = `Since ${u.since}. History kept from ${u.history_from || '–'}. Left out: ${u.excluded?.work || 0} work, ${u.excluded?.director || 0} director.`;
+    const bandOf = (items) => Object.fromEntries(items.map((i) => [i.key, i.band]));
+    usageTable('usage-skills', u.skills, bandOf(sc.skills), 'No skill ran in this window.');
+    usageTable('usage-connectors', u.connectors, bandOf(sc.connectors), 'No connector was called in this window.');
+    usageTable('usage-agents', u.agents, {}, 'No sub-agent ran in this window.');
+
+    const wrap = $('scorecard'); wrap.innerHTML = '';
+    for (const [kind, title] of [['skills', 'SKILLS'], ['connectors', 'CONNECTORS']]) {
+      const col = el('div');
+      const h = el('div', 'usage-h', title); h.appendChild(el('span', 'n', ` ${sc[kind].length} installed`)); col.appendChild(h);
+      for (const [band, label, cls] of BAND) {
+        const pack = (n) => n.slice(0, Math.max(0, n.lastIndexOf(':')));  // chips are grouped under their pack
+        const items = sc[kind].filter((i) => i.band === band).sort((a, b) => pack(a.name).localeCompare(pack(b.name)) || b.calls_30d - a.calls_30d || b.calls_all - a.calls_all || a.name.localeCompare(b.name));
+        let group = '';
+        const row = el('div', 'band ' + cls);
+        const bh = el('div', 'band-h', label); bh.appendChild(el('span', 'n', items.length));
+        const chips = el('div', 'band-chips');
+        if (!items.length) chips.appendChild(el('span', 'empty', 'none'));
+        for (const i of items) {
+          const pk = pack(i.name);
+          if (pk && pk !== group) chips.appendChild(el('span', 'grp', pk));
+          group = pk;
+          const c = el('span', 'sc-chip', pk ? i.name.slice(pk.length + 1) : i.name);
+          if (i.calls_30d) c.appendChild(el('span', 'n', i.calls_30d + '×'));
+          c.title = [i.source, i.name !== i.key ? i.key : '', `${i.calls_30d} call(s) in ${sc.window_days} days`, `${i.calls_all} on record`,
+            i.last ? 'last used ' + i.last.replace('T', ' ') : 'never called', i.tokens_per_call ? num(i.tokens_per_call) + ' tokens per call' : ''].filter(Boolean).join(' · ');
+          chips.appendChild(c);
+        }
+        row.append(bh, chips); col.appendChild(row);
+      }
+      wrap.appendChild(col);
+    }
+    const c = sc.counts.skills, k = sc.counts.connectors;
+    $('score-meta').textContent = `${c['never used'] + k['never used']} never used · ${c['under-used'] + k['under-used']} under-used · ${c.heavy + k.heavy} heavy`;
+    $('score-legend').textContent = `Never used: no call on record. Under-used: none in the last ${sc.window_days} days. Heavy: the top fifth by tokens per call. Normal: the rest.`;
+    $('score-off').hidden = !sc.off_count;
+    $('score-off-sum').textContent = `Installed, switched off · ${sc.off_count} skills in ${sc.off.length} packs`;
+    const list = $('score-off-list'); list.innerHTML = '';
+    for (const p of sc.off) {
+      const d = el('div', 'pack'); d.append(el('b', '', `${p.pack} (${p.skills.length})`), document.createTextNode(' ' + p.skills.map((s) => s.split(':').pop()).join(', ')));
+      list.appendChild(d);
+    }
+  }
+
   // ---------------------------------------------------------------- map wiring
   function renderMapChrome() {
     const s = S.snapshot; if (!s) return;
@@ -339,13 +424,13 @@
     renderAll(true);
   }
   function renderAll(withMap) {
-    renderStatus(); renderToday(); renderDirector(); renderRoutines(); renderMapChrome(); renderDayLog();
+    renderStatus(); renderToday(); renderDirector(); renderRoutines(); renderUsage(); renderMapChrome(); renderDayLog();
     if (withMap && S.snapshot) map.setData(S.snapshot);
   }
   async function reloadSnapshot() {
     S.snapshot = await api('/api/snapshot');
     const st = await api('/api/state'); S.session = st.session; S.sync = st.sync;
-    renderStatus(); renderToday(); renderRoutines(); renderProjects(); renderNeeds(); renderMapChrome();
+    renderStatus(); renderToday(); renderRoutines(); renderProjects(); renderNeeds(); renderUsage(); renderMapChrome();
     map.setData(S.snapshot);
   }
   function connect() {
