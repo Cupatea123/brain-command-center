@@ -11,6 +11,7 @@ Everything runs on your machine: a Node server on `127.0.0.1`, a Python reader f
 - **Projects**, **Sessions**, **Resolved**, **TODO**.
 - **Needs you:** what is waiting on you, computed in code: your tasks, tasks that need a go, blocked or stalled tasks, proposed decisions, TODO lines without a task, new inbox notes, failed or missed routines, close deadlines. The director adds up to three things the code cannot see.
 - **Routines:** Windows scheduled tasks and Claude Code scheduled tasks, with today's status.
+- **Agents:** if you run a [OneManCompany](https://github.com/1mancompany/OneManCompany) agent office, every employee with status, current task, room and tokens spent, live. What the office is waiting on you for shows up under **Needs you** with a link into the office.
 - **Usage:** every skill, connector and sub-agent type used in the last 30 days, with calls, last used, tokens and time, and a scorecard that marks each installed skill and connector as never used, under-used, normal or heavy.
 - **Command bar:** ask the director anything; it reads the vault and can edit notes. After an edit the server runs your vault lint and commits the touched files.
 
@@ -115,6 +116,29 @@ The scorecard has a **Rank with Jev** button. It asks [TypeSafe's Jev model](htt
 - **What it is worth:** Jev judges from the descriptions and the usage numbers. It has not seen the work the skills produced, so read the rank as a second opinion on cost against stated purpose, not as a measure of quality. The panel says so next to the result.
 - The result is kept in `data/usage-jev-rank.json` (gitignored) until the next run replaces it. `usage.jevModel` picks the model (default `jev-latest`).
 
+## Agents (optional)
+`agents.mjs` watches one [OneManCompany](https://github.com/1mancompany/OneManCompany) office (or a fork of it) and shows who is working on what. It only reads: the Command Center never sends the office a task, an answer or a hire.
+
+Set it up in `local/config.json`:
+```json
+"agents": {
+  "url": "http://127.0.0.1:8000",
+  "tokenFile": "C:\\path\\to\\office\\.onemancompany\\local_token",
+  "employeesDir": "C:\\path\\to\\office\\.onemancompany\\company\\human_resource\\employees"
+}
+```
+- `url`: where the office answers. Without it the panel says **NOT RUNNING · no agent office is set** and nothing is called.
+- `tokenFile`: only if your office asks for a token on its API (a fork that adds one keeps it in a file). The server reads the file each time it calls the office and sends the token in the `X-OMC-Token` header to `url`, nowhere else. It is never sent to the page, never logged, never copied into `data/`.
+- `employeesDir`: the folder that holds one folder per employee. If an employee folder has a `claude_usage.jsonl` (one line per `claude` CLI run, with its `usage` block), the **TOKENS** column is the sum of new tokens (input, output, cache writes), with cache reads in the hover. Without `employeesDir` the column reads **n/a**.
+
+What it reads from the office: `GET /api/state` (rooms, running tasks), `/api/employees`, `/api/projects`, `/api/ceo/sessions` (and the session itself when it has a message waiting), `/api/candidates/pending`, and the `/ws` event stream. An event re-reads the office within a second; a full re-read also runs every `agents.pollSeconds` (20). On Node older than 22 there is no built-in WebSocket client, so it polls only.
+
+- **Needs you** gets one line per hire shortlist waiting for a choice and per project conversation waiting for your answer (a sign-off when the last message asks you to confirm). The link opens the office with the item named after the `#`. The office has no page addresses of its own, so today the shortlist reopens by itself and a pending conversation is the one marked in its project list.
+- **The office going away** is normal: it restarts itself after a hire. For `agents.graceSeconds` (60) the panel keeps the last rows, dimmed, and says **RECONNECTING**; after that it says **NOT RUNNING**. The rest of the page does not depend on it.
+- `"agents": false` removes the panel.
+
+To see the panel without an office: `node tests/fake-office.mjs --port 8765` serves the made-up company in `tests/fixtures/office`; point `agents.url` at `http://127.0.0.1:8765` and `agents.employeesDir` at `tests/fixtures/office/employees`.
+
 ## The director
 - The installed `claude` CLI, headless: `claude -p --resume <session> --permission-mode dontAsk --settings data/director-settings.json --append-system-prompt-file data/director-prompt.md`, run from the vault so its `CLAUDE.md` applies.
 - Both files are rendered at start from `director/` plus `local/`. `dontAsk` refuses anything not allowed.
@@ -132,6 +156,7 @@ If your vault keeps a log of Claude Code sessions, add `^REFRESH (FULL|CHANGES) 
 | `brain/snapshot.py` | Reads the vault into the snapshot; no third-party packages |
 | `brain/usage.py` | Reads the Claude Code transcripts into the `usage` and `scorecard` keys of the snapshot |
 | `jev.mjs` | The on-demand Rank with Jev request: what is sent, the question wording, the ranking |
+| `agents.mjs` | The AGENTS panel: reads an agent office's API and event stream, sums tokens per employee |
 | `brain/routines.ps1` | Task Scheduler state for the routines panel |
 | `brain/routines.json`, `brain/areas.json` | Defaults for the demo vault; `local/` overrides them |
 | `director/` | The director's prompt, base permissions and output schemas |
@@ -139,12 +164,14 @@ If your vault keeps a log of Claude Code sessions, add `^REFRESH (FULL|CHANGES) 
 | `local.example/` | A starting `local/` |
 | `examples/demo-vault/` | A small vault in the expected layout |
 | `data/` | Runtime state (gitignored): token, snapshots, director output, `days/<date>.json`, `usage-cache.json`, `usage-daily.json`, `usage-jev-rank.json`, `server.log` |
-| `tests/` | `python -m unittest discover -s tests`; `node --test tests/jev.test.mjs` (the Jev call is mocked, nothing reaches the network); `node tests/smoke.mjs ["a prompt"]` against a running server |
+| `tests/` | `python -m unittest discover -s tests`; `node --test tests/jev.test.mjs tests/agents.test.mjs` (the Jev call is mocked and the office is `tests/fake-office.mjs` on a loopback port, so nothing leaves the machine); `node tests/smoke.mjs ["a prompt"]` against a running server |
 
 ## Settings (`local/config.json`)
 `port` (or `node server.mjs --port 4318` for a second copy), `refreshMinutes`, `model` (prompts and day end), `refreshModel` (full refreshes and the compact), `changesModel` (changes-only refreshes), `compactAboveTokens`, `skillsHub` (the note your skills hang off on the map), `briefUrl` plus `briefRoutine` (a link under the brief once that routine fired today), `title`, `subtitle`, `place`, and `"director": false` to read the brain without calling Claude.
 
 `usage` (an object, or `false` to turn the panel off): `claudeHome` and `claudeJson` (default `~/.claude` and `~/.claude.json`), `excludeRoots`, `excludeRootsFile` and `excludeRootsKey`, `connectorNames` (`{"<server name or id>": "label"}`; claude.ai connectors appear under an id, so name them here, and list the ones you want scored even if never called), `hideConnectors`, `windowDays`, `heavyShare`, `jevModel`.
+
+`agents` (an object, or `false` to turn the panel off): `url`, `tokenFile`, `employeesDir`, `pollSeconds`, `graceSeconds`; see Agents above.
 
 `/api/health` reports whether the code or `local/` changed since the server started; `Start-CommandCenter.ps1` then restarts it, so reopening the shortcut picks up changes.
 
@@ -152,4 +179,5 @@ If your vault keeps a log of Claude Code sessions, add `^REFRESH (FULL|CHANGES) 
 - The server binds to 127.0.0.1 and rejects other Host headers.
 - Every API call needs the token in `data/token`, which the server puts into the page it serves.
 - The note endpoint serves only `.md` files inside the vault.
+- The agent office's token (`agents.tokenFile`) is read by the server and sent only to `agents.url`, in a header. The page gets employee names, statuses, task lines and token counts, not the token and not the two paths.
 - Nothing is published or hosted. `data/` and `local/` never leave the machine. The one exception is the Rank with Jev button, which sends what its confirm step lists to `api.typesafe.ai`, once per click.

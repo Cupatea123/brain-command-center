@@ -5,9 +5,9 @@
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined && text !== null) e.textContent = String(text); return e; };
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const TAG_COLOR = { decision: '#A98BF5', task: '#FF7A1A', todo: '#4CC38A', routine: '#6EA8FE', deadline: '#F2B53A', system: '#8E8C84' };
+  const TAG_COLOR = { agents: '#E5484D', decision: '#A98BF5', task: '#FF7A1A', todo: '#4CC38A', routine: '#6EA8FE', deadline: '#F2B53A', system: '#8E8C84' };
 
-  let S = { snapshot: null, director: null, day: null, session: null, sync: null, jev: null, status: {}, config: {} };
+  let S = { snapshot: null, director: null, day: null, session: null, sync: null, jev: null, agents: null, status: {}, config: {} };
   let map = null;
   const chats = new Map();
 
@@ -153,7 +153,9 @@
   // Needs are computed in code (snapshot.needs). The director adds up to three items the code cannot see.
   function mergedNeeds() {
     const d = S.director?.output || {}; const s = S.snapshot || {};
-    const out = [...(s.needs || [])];
+    // what the agent office is waiting on comes first: its employees stand still until it is answered
+    // (the list is the last known one while the office restarts, and empty once it is not running)
+    const out = [...(S.agents?.waiting || []).map((w) => ({ tag: 'agents', title: w.title, detail: w.detail, url: w.url, age_days: null })), ...(s.needs || [])];
     // drop extras that restate a code item (same tag and most of the same words)
     const words = (t) => new Set(String(t).toLowerCase().match(/[a-z0-9]{4,}/g) || []);
     const dup = (x) => out.some((n) => {
@@ -176,6 +178,7 @@
       const body = el('div'); body.append(title, el('div', 'nd', n.detail));
       li.append(el('span', 'fl', '⚑'), body, el('span', 'age', n.age_days ? n.age_days + 'd' : ''));
       if (n.owner) { li.style.cursor = 'pointer'; li.addEventListener('click', () => map.focus(n.owner)); }
+      if (n.url) { const a = el('a', 'go', 'Open in the office ↗'); a.href = n.url; a.target = '_blank'; a.rel = 'noopener'; body.appendChild(a); }
       list.appendChild(li);
     }
     const counts = {}; items.forEach((n) => { counts[n.tag] = (counts[n.tag] || 0) + 1; });
@@ -206,6 +209,48 @@
       tb.appendChild(tr);
     }
     if (!markerDone) { const tr = el('tr', 'now'); const td = el('td'); td.colSpan = 3; td.appendChild(el('span', '', now)); tr.appendChild(td); tb.appendChild(tr); }
+  }
+
+  // ---------------------------------------------------------------- agents
+  // Who in the agent office is doing what (S.agents, kept current by the server from the office's
+  // API and event stream). What the office waits on is merged into NEEDS, above.
+  const AGENT_STATUS = { working: 'WORKING', in_meeting: 'IN MEETING', idle: 'IDLE', offline: 'OFFLINE', setup: 'NEEDS SETUP' };
+  const TOK_HELP = 'New tokens this employee has spent: input, output and cache writes, summed from its claude_usage.jsonl. Hover a number for what was re-read from cache.';
+  function renderAgents() {
+    const a = S.agents;
+    $('agents-panel').hidden = !a;
+    if (!a) return;
+    const rows = a.state === 'up' || a.state === 'reconnecting';
+    $('agents-table').hidden = !rows;
+    $('agents-table').classList.toggle('stale', a.state === 'reconnecting');
+    $('agents-off').hidden = a.state === 'up';
+    $('agents-off').className = 'agents-off ' + a.state;
+    $('agents-off-state').textContent = a.state === 'reconnecting' ? 'RECONNECTING' : 'NOT RUNNING';
+    $('agents-off-why').textContent = [a.reason, a.state !== 'up' && a.seen ? `Last seen ${hhmm(a.seen)}.` : ''].filter(Boolean).join(' ');
+    const meta = $('agents-meta'); meta.innerHTML = '';
+    if (!rows) { meta.textContent = a.state === 'unconfigured' ? 'not set up' : 'office not running'; return; }
+    const c = a.counts;
+    meta.append(document.createTextNode([`${c.working} working`, c.in_meeting ? `${c.in_meeting} in a meeting` : '', `${c.total} employees`, a.state === 'up' ? (a.live ? 'live' : 'polling') : 'last known'].filter(Boolean).join(' · ') + ' · '));
+    const open = el('a', '', 'open the office ↗'); open.href = a.url; open.target = '_blank'; open.rel = 'noopener'; meta.appendChild(open);
+    $('agents-tok-th').title = a.tokensAvailable ? TOK_HELP : 'Not available: set agents.employeesDir in local/config.json to the employees folder of the office.';
+    const tb = $('agents'); tb.innerHTML = '';
+    if (!a.employees.length) { const tr = el('tr', 'none'); const td = el('td', '', 'The office has no employees yet.'); td.colSpan = 5; tr.appendChild(td); tb.appendChild(tr); }
+    for (const e of a.employees) {
+      const tr = el('tr', e.status);
+      const who = el('td', 'who', e.name);
+      if (e.nickname) who.appendChild(el('span', 'nick', e.nickname));
+      who.appendChild(el('span', 'role', [e.role, e.model].filter(Boolean).join(' · ')));
+      who.title = `Employee ${e.id}`;
+      const task = el('td', 'task', e.task || '–');
+      if (e.project) task.appendChild(el('span', 'proj', e.project));
+      task.title = e.task || '';
+      const tok = el('td', 'tok');
+      if (!a.tokensAvailable) { tok.textContent = 'n/a'; tok.classList.add('na'); tok.title = 'Not available: agents.employeesDir is not set.'; }
+      else if (!e.tokens) { tok.textContent = '–'; tok.classList.add('na'); tok.title = 'No claude_usage.jsonl for this employee yet.'; }
+      else { tok.textContent = fmtTok(e.tokens.tokens); tok.title = `${num(e.tokens.tokens)} new tokens · ${num(e.tokens.cache_read)} re-read from cache · ${e.tokens.turns} turns in ${e.tokens.runs} run${e.tokens.runs === 1 ? '' : 's'}${e.tokens.last ? ' · last ' + hhmm(e.tokens.last) : ''}`; }
+      tr.append(who, el('td', 'st ' + e.status, AGENT_STATUS[e.status] || String(e.status).toUpperCase()), task, el('td', 'room', e.room || '–'), tok);
+      tb.appendChild(tr);
+    }
   }
 
   // ---------------------------------------------------------------- usage and scorecard
@@ -470,13 +515,13 @@
     renderAll(true);
   }
   function renderAll(withMap) {
-    renderStatus(); renderToday(); renderDirector(); renderRoutines(); renderUsage(); renderMapChrome(); renderDayLog();
+    renderStatus(); renderToday(); renderDirector(); renderRoutines(); renderAgents(); renderUsage(); renderMapChrome(); renderDayLog();
     if (withMap && S.snapshot) map.setData(S.snapshot);
   }
   async function reloadSnapshot() {
     S.snapshot = await api('/api/snapshot');
-    const st = await api('/api/state'); S.session = st.session; S.sync = st.sync; S.jev = st.jev;
-    renderStatus(); renderToday(); renderRoutines(); renderProjects(); renderNeeds(); renderUsage(); renderMapChrome();
+    const st = await api('/api/state'); S.session = st.session; S.sync = st.sync; S.jev = st.jev; S.agents = st.agents;
+    renderStatus(); renderToday(); renderRoutines(); renderProjects(); renderNeeds(); renderAgents(); renderUsage(); renderMapChrome();
     map.setData(S.snapshot);
   }
   function connect() {
@@ -488,6 +533,7 @@
     es.addEventListener('chat', (e) => onChat(JSON.parse(e.data)));
     es.addEventListener('dayend', (e) => { const d = JSON.parse(e.data); showDayend(d, d.date); });
     es.addEventListener('jev', (e) => { S.jev = JSON.parse(e.data); renderUsage(); });
+    es.addEventListener('agents', (e) => { S.agents = JSON.parse(e.data); renderAgents(); renderNeeds(); });
     es.addEventListener('session', () => { toast('New director session started.'); api('/api/state').then((st) => { S.session = st.session; renderStatus(); }); });
     es.addEventListener('error', (e) => { if (e.data) { const d = JSON.parse(e.data); toast(`${d.label} failed: ${d.message}`, 9000); if (d.directorError !== undefined) { S.directorError = d.directorError; renderDirector(); } } });
   }

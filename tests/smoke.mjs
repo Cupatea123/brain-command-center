@@ -34,6 +34,12 @@ check('usage is read without an error', !usage || !usage.error, usage ? `skills=
 const noConfirm = await req('/api/jev/rank', { method: 'POST', body: '{}', headers: { 'x-cc-token': TOKEN } });
 check('jev rank refuses a call that was not confirmed', noConfirm.status === 400, noConfirm.body);
 check('state does not carry the TypeSafe key', !process.env.TYPESAFE_API_KEY || !state.body.includes(process.env.TYPESAFE_API_KEY), `jev available=${st.jev?.available}`);
+// The AGENTS panel: a view is always there (or null when turned off), and the office's token never is.
+const agents = st.agents;
+check('agents view has a known state', agents === null || ['up', 'reconnecting', 'down', 'unconfigured'].includes(agents.state), agents ? `${agents.state}${agents.state === 'up' ? `, ${agents.employees.length} employees, ${agents.waiting.length} waiting` : agents.reason ? ': ' + agents.reason : ''}` : 'off');
+const localCfg = (() => { try { return JSON.parse(fs.readFileSync(path.join(CC, 'local', 'config.json'), 'utf8').replace(/^\uFEFF/, '')); } catch { return {}; } })();
+const officeToken = (() => { try { return fs.readFileSync(path.resolve(CC, localCfg.agents?.tokenFile || ''), 'utf8').trim(); } catch { return ''; } })();
+check('neither the page nor the state carries the agent office token', !officeToken || (!state.body.includes(officeToken) && !page.body.includes(officeToken)), officeToken ? 'token file read, not found in either' : 'no token file configured');
 console.log(`INFO  director output: ${st.director?.at || 'none yet'}`);
 check('note endpoint refuses paths outside the vault', (await req('/api/note?rel=' + encodeURIComponent('..\\..\\secret.md'), { headers: { 'x-cc-token': TOKEN } })).status === 404);
 

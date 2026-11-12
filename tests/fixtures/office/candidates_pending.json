@@ -1,0 +1,5 @@
+{"batches": {"9f3a1c2b": {"candidates": [
+  {"id": "talent-data-analyst", "name": "Data Analyst", "role": "Analyst", "skills": ["sql", "charts"]},
+  {"id": "talent-copywriter", "name": "Copywriter", "role": "Writer", "skills": ["copy"]},
+  {"id": "talent-qa", "name": "QA Tester", "role": "Engineer", "skills": ["testing"]}
+], "roles": []}}}

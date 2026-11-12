@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { candidates, rankWithJev, JEV_HOST, SENT_FIELDS, BASIS } from './jev.mjs';
+import { watchOffice, AGENTS_DEFAULTS } from './agents.mjs';
 
 const CC = path.dirname(fileURLToPath(import.meta.url));
 const DATA = path.join(CC, 'data');
@@ -45,6 +46,7 @@ const CONFIG = {
   changesModel: 'haiku',    // changes-only refreshes (most of them)
   compactAboveTokens: 120000, // first refresh of the day compacts the session when its context is larger
   usage: {},                // the USAGE panel (see USAGE_DEFAULTS below); false turns it off
+  agents: {},               // the AGENTS panel (see AGENTS_DEFAULTS in agents.mjs); false turns it off
   ...readJson(localFile('config.json', ''), {}),
 };
 { const i = process.argv.indexOf('--port'); if (i > 0 && process.argv[i + 1]) CONFIG.port = Number(process.argv[i + 1]); }
@@ -57,6 +59,9 @@ CONFIG.title = CONFIG.title || `${CONFIG.owner} OS`.toUpperCase();
 const USER_HOME = process.env.USERPROFILE || process.env.HOME || '';
 const USAGE_DEFAULTS = { claudeHome: path.join(USER_HOME, '.claude'), claudeJson: path.join(USER_HOME, '.claude.json'), excludeRoots: [], excludeRootsFile: '', excludeRootsKey: 'work_roots', connectorNames: {}, hideConnectors: ['ccd_*'], windowDays: 30, jevModel: 'jev-latest' };
 CONFIG.usage = CONFIG.usage === false ? null : { ...USAGE_DEFAULTS, ...CONFIG.usage };
+// The agent office (agents.mjs): its address, the file its token is in, its employees folder.
+CONFIG.agents = CONFIG.agents === false ? null : { ...AGENTS_DEFAULTS, ...CONFIG.agents };
+if (CONFIG.agents) for (const k of ['tokenFile', 'employeesDir']) if (CONFIG.agents[k]) CONFIG.agents[k] = path.resolve(CC, CONFIG.agents[k]);
 const STARTED = new Date().toISOString();
 
 const P = {
@@ -84,7 +89,7 @@ const P = {
   refreshSchema: path.join(CC, 'director', 'schemas', 'refresh.schema.json'),
   dayendSchema: path.join(CC, 'director', 'schemas', 'dayend.schema.json'),
 };
-const WATCHED = ['server.mjs', 'jev.mjs', 'brain/snapshot.py', 'brain/usage.py', 'director/director.md', 'director/settings.json', 'local/config.json', 'local/director.md', 'local/settings.json'];
+const WATCHED = ['server.mjs', 'jev.mjs', 'agents.mjs', 'brain/snapshot.py', 'brain/usage.py', 'director/director.md', 'director/settings.json', 'local/config.json', 'local/director.md', 'local/settings.json'];
 const codeStamp = () => Math.max(...WATCHED.map((f) => { try { return fs.statSync(path.join(CC, f)).mtimeMs; } catch { return 0; } }));
 const CODE_AT_START = codeStamp();
 
@@ -154,6 +159,11 @@ function broadcast(event, data) {
 const status = { core: 'idle', phase: '', queue: 0, label: '' };
 let directorError = '';   // why the director's last refresh failed, shown on the page until one succeeds
 function setStatus(patch) { Object.assign(status, patch); broadcast('status', status); }
+
+// ------------------------------------------------------------------ the agent office (read only)
+// Watches the office named in config and pushes each change to the page. The view it hands out
+// holds what the page shows and nothing else: the office's token stays inside agents.mjs.
+const office = CONFIG.agents ? watchOffice(CONFIG.agents, { onChange: (view) => broadcast('agents', view), log }) : null;
 
 // ------------------------------------------------------------------ job queue (one director call at a time)
 let chain = Promise.resolve();
@@ -574,7 +584,7 @@ const server = http.createServer(async (req, res) => {
         const today = localDate();
         return send(res, 200, { snapshot: readJson(P.snapshot, null), director: readJson(P.director, null), day: readDay(today), status,
           session: { id: state.sessionId, started: state.sessionStarted, lastDirectorAt: state.lastDirectorAt, lastSnapshotAt: state.lastSnapshotAt, cost: state.sessionCost || 0, contextTokens: state.contextTokens || 0, model: CONFIG.model || 'default' },
-          sync: lastSync(), jev: jevStatus(), directorError, config: PAGE() });
+          sync: lastSync(), jev: jevStatus(), agents: office ? office.view() : null, directorError, config: PAGE() });
       }
       if (p === '/api/snapshot' && req.method === 'GET') return send(res, 200, readJson(P.snapshot, null));
       if (p === '/api/health' && req.method === 'GET') {

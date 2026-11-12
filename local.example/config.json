@@ -29,5 +29,10 @@
     },
     "windowDays": 30,
     "jevModel": "jev-latest"
+  },
+  "agents": {
+    "url": "http://127.0.0.1:8000",
+    "tokenFile": "C:\\path\\to\\office\\.onemancompany\\local_token",
+    "employeesDir": "C:\\path\\to\\office\\.onemancompany\\company\\human_resource\\employees"
   }
 }

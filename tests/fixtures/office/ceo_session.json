@@ -1,0 +1,9 @@
+{
+  "c0ffee123456/iter_001": {"history": [
+    {"role": "ceo", "text": "Draft the newsletter for this week.", "source": "user", "timestamp": "2030-01-13T08:00:00", "mentions": []},
+    {"role": "Jo EA", "text": "Project complete: the newsletter draft is in the workspace. Reply to confirm, or tell me what to change.", "source": "assistant", "timestamp": "2030-01-15T09:10:00", "mentions": []}
+  ], "pending_count": 1, "conv_id": "conv-1"},
+  "0f9e8d7c6b5a/iter_002": {"history": [
+    {"role": "Jo EA", "text": "Which tone do you want for the landing page: plain or playful?", "source": "assistant", "timestamp": "2030-01-15T09:45:00", "mentions": []}
+  ], "pending_count": 1, "conv_id": "conv-2"}
+}
