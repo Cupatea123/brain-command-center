@@ -163,7 +163,7 @@ b { font-weight: 600; }
 .drawer-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: var(--soft); font-size: 20px; line-height: 1; cursor: pointer; }
 
 /* center panels */
-.lead { margin: 0 0 10px; font-size: 13.5px; line-height: 1.6; color: var(--text); }
+.lead { white-space: pre-line; margin: 0 0 10px; font-size: 13.5px; line-height: 1.6; color: var(--text); }
 .focus, .feed, .needs, .notes { list-style: none; margin: 0; padding: 0; }
 .focus { display: flex; flex-direction: column; gap: 8px; counter-reset: f; }
 .focus li { counter-increment: f; padding-left: 22px; position: relative; font-size: 12.5px; }

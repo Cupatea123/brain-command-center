@@ -97,7 +97,7 @@
   function renderDirector() {
     const d = S.director?.output;
     $('director-at').textContent = S.director?.at ? `director · ${hhmm(S.director.at)}` : 'director · not run yet';
-    $('where').textContent = d?.where_im_at || 'The director writes this on the first refresh. It runs when you open the Command Center.';
+    $('where').textContent = (S.directorError ? `The director could not run: ${S.directorError}${d?.where_im_at ? '\n\nLast time it did: ' : ''}` : '') + (d?.where_im_at || (S.directorError ? '' : 'The director writes this on the first refresh. It runs when you open the Command Center.'));
     const f = $('focus'); f.innerHTML = '';
     for (const it of d?.focus || []) { const li = el('li'); li.append(el('span', 't', it.title), document.createTextNode(' '), el('span', 'w', it.why)); f.appendChild(li); }
     const b = d?.brief || d?.daily_brief;
@@ -483,13 +483,13 @@
     const es = new EventSource('/api/events?token=' + encodeURIComponent(TOKEN));
     es.addEventListener('status', (e) => { S.status = JSON.parse(e.data); renderStatus(); });
     es.addEventListener('snapshot', () => { reloadSnapshot().catch((err) => toast(err.message)); });
-    es.addEventListener('director', (e) => { S.director = JSON.parse(e.data); renderDirector(); toast(`Director reworked the dashboard (${S.director.duration_s}s).`); api('/api/state').then((st) => { S.session = st.session; renderStatus(); }); });
+    es.addEventListener('director', (e) => { S.director = JSON.parse(e.data); S.directorError = ''; renderDirector(); toast(`Director reworked the dashboard (${S.director.duration_s}s).`); api('/api/state').then((st) => { S.session = st.session; renderStatus(); }); });
     es.addEventListener('director-skip', (e) => { const d = JSON.parse(e.data); toast(`Brain unchanged since ${hhmm(d.last)}; director skipped. Refresh forces a run.`); });
     es.addEventListener('chat', (e) => onChat(JSON.parse(e.data)));
     es.addEventListener('dayend', (e) => { const d = JSON.parse(e.data); showDayend(d, d.date); });
     es.addEventListener('jev', (e) => { S.jev = JSON.parse(e.data); renderUsage(); });
     es.addEventListener('session', () => { toast('New director session started.'); api('/api/state').then((st) => { S.session = st.session; renderStatus(); }); });
-    es.addEventListener('error', (e) => { if (e.data) { const d = JSON.parse(e.data); toast(`${d.label} failed: ${d.message}`, 9000); } });
+    es.addEventListener('error', (e) => { if (e.data) { const d = JSON.parse(e.data); toast(`${d.label} failed: ${d.message}`, 9000); if (d.directorError !== undefined) { S.directorError = d.directorError; renderDirector(); } } });
   }
 
   // ---------------------------------------------------------------- boot

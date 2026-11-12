@@ -152,6 +152,7 @@ function broadcast(event, data) {
   for (const res of clients) { try { res.write(msg); } catch {} }
 }
 const status = { core: 'idle', phase: '', queue: 0, label: '' };
+let directorError = '';   // why the director's last refresh failed, shown on the page until one succeeds
 function setStatus(patch) { Object.assign(status, patch); broadcast('status', status); }
 
 // ------------------------------------------------------------------ job queue (one director call at a time)
@@ -164,7 +165,11 @@ function enqueue(key, label, fn) {
   setStatus({});
   chain = chain.then(async () => {
     setStatus({ core: 'busy', label });
-    try { await fn(); } catch (e) { log('job failed', label, e.stack || e); broadcast('error', { label, message: String(e.message || e) }); }
+    try { await fn(); } catch (e) {
+      log('job failed', label, e.stack || e);
+      if (/^refresh/.test(label)) directorError = String(e.message || e).replace(/^director refresh returned no structured output: /, '');
+      broadcast('error', { label, message: String(e.message || e), directorError });
+    }
   }).finally(() => {
     if (key) queued.delete(key);
     status.queue--;
@@ -288,6 +293,14 @@ function directorArgs(extra, model = CONFIG.model) {
 
 async function callDirector(extra, prompt, onLine, model = CONFIG.model) {
   let r = await run(EXE.claude, directorArgs(extra, model), { cwd: CONFIG.directorCwd, input: prompt, onLine });
+  // A first call that fails after the CLI has opened the session (a signed-out CLI, for one) still
+  // leaves a transcript under the id, and the CLI then refuses --session-id for it on every later
+  // call, which hides the real error. The session exists, so resume it.
+  if (r.code !== 0 && !state.sessionStarted && /session id \S+ is already in use/i.test(r.err + r.out)) {
+    log('director session id already has a transcript, resuming it');
+    state.sessionStarted = true; saveState();
+    r = await run(EXE.claude, directorArgs(extra, model), { cwd: CONFIG.directorCwd, input: prompt, onLine });
+  }
   if (r.code !== 0 && state.sessionStarted && /no conversation found|session.*not found/i.test(r.err + r.out)) {
     log('director session missing, starting a new one');
     state.sessionId = crypto.randomUUID(); state.sessionStarted = false; state.sessionCost = 0; saveState();
@@ -406,6 +419,7 @@ async function directorRefresh(force) {
   writeJson(P.director, record);
   fs.copyFileSync(P.dinput, P.lastInput);
   Object.assign(state, { lastDirectorHash: snap.hash, lastDirectorAt: record.at, lastBriefDate: today });
+  directorError = '';
   saveState();
   updateDay(today, (d) => d.refreshes.push({ at: record.at, skipped: false, mode: record.mode, cost_usd: record.cost_usd, duration_s: record.duration_s }));
   log(`director refresh (${record.mode}, ${prompt.length} chars, ${model}) done in ${record.duration_s}s, $${(record.cost_usd || 0).toFixed(3)}, context ${Math.round((state.contextTokens || 0) / 1000)}k`);
@@ -560,7 +574,7 @@ const server = http.createServer(async (req, res) => {
         const today = localDate();
         return send(res, 200, { snapshot: readJson(P.snapshot, null), director: readJson(P.director, null), day: readDay(today), status,
           session: { id: state.sessionId, started: state.sessionStarted, lastDirectorAt: state.lastDirectorAt, lastSnapshotAt: state.lastSnapshotAt, cost: state.sessionCost || 0, contextTokens: state.contextTokens || 0, model: CONFIG.model || 'default' },
-          sync: lastSync(), jev: jevStatus(), config: PAGE() });
+          sync: lastSync(), jev: jevStatus(), directorError, config: PAGE() });
       }
       if (p === '/api/snapshot' && req.method === 'GET') return send(res, 200, readJson(P.snapshot, null));
       if (p === '/api/health' && req.method === 'GET') {
