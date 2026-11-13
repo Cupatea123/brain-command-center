@@ -274,6 +274,31 @@ class Scorecard(Fixture):
         self.assertNotIn("ccd_turn", self.by(u["connectors"]))
         self.assertNotIn("ccd_turn", self.by(s["connectors"]))
 
+    def test_one_connector_under_two_spellings(self):
+        d = "2026-10-19"
+        write(self.proj / "four.jsonl", [prompt(ts(d, "16:00:00"), "x"),
+                                         reply(ts(d, "16:00:02"), "msg_c1", use(1, 1, 1, 0), tool("tu_c1", "mcp__claude-in-chrome__navigate")),
+                                         reply(ts(d, "16:00:04"), "msg_c2", use(1, 1, 1, 0), tool("tu_c2", "mcp__Claude_in_Chrome__navigate")),
+                                         reply(ts(d, "16:00:06"), "msg_c3", use(2, 2, 2, 0), tool("tu_c3", "mcp__Claude_in_Chrome__find"),
+                                               attributionMcpServer="Claude in Chrome")])
+        u, s = self.build()
+        rows = [r for r in u["connectors"] if usage.server_key(r["key"]) == "claude_in_chrome"]
+        items = [i for i in s["connectors"] if usage.server_key(i["key"]) == "claude_in_chrome"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(rows[0]["calls"], 3)
+        self.assertEqual(rows[0]["key"], "Claude_in_Chrome")              # not installed: the spelling used most
+        self.assertEqual(items[0]["calls_30d"], 3)
+        self.assertEqual(items[0]["band"], "normal")
+        # Configured under the other spelling: that spelling names it, and it is still one connector.
+        self.cfg["connectorNames"] = {"claude-in-chrome": "Chrome"}
+        u, s = self.build()
+        items = [i for i in s["connectors"] if usage.server_key(i["key"]) == "claude_in_chrome"]
+        self.assertEqual([(i["key"], i["name"], i["calls_30d"]) for i in items], [("claude-in-chrome", "Chrome", 3)])
+        self.assertEqual(self.by(u["connectors"])["claude-in-chrome"]["calls"], 3)
+        self.assertEqual(usage.server_key("Some-Server"), usage.server_key("some_server"))
+        self.assertNotEqual(usage.server_key("tv"), usage.server_key("tv2"))
+
 
 class InSnapshot(Fixture):
     def test_snapshot_has_usage_and_the_director_does_not(self):

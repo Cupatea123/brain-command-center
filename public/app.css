@@ -171,6 +171,7 @@ b { font-weight: 600; }
 .focus .t { color: var(--text); font-weight: 600; }
 .focus .w { color: var(--soft); }
 .empty { color: var(--dim); font-size: 12px; font-style: normal; }
+.next14 li.empty, .feed li.empty, .needs li.empty { display: block; } /* a grid row's narrow first column would wrap it word by word */
 .brief-headline { font: 600 17px/1.35 var(--display); margin: 0 0 10px; color: var(--text); }
 .acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
 .acts .act { border-left: 1px solid var(--line-2); padding-left: 9px; min-width: 0; }

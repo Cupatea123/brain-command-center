@@ -157,6 +157,7 @@ If your vault keeps a log of Claude Code sessions, add `^REFRESH (FULL|CHANGES) 
 | `brain/usage.py` | Reads the Claude Code transcripts into the `usage` and `scorecard` keys of the snapshot |
 | `jev.mjs` | The on-demand Rank with Jev request: what is sent, the question wording, the ranking |
 | `agents.mjs` | The AGENTS panel: reads an agent office's API and event stream, sums tokens per employee |
+| `session.mjs` | The director's Claude Code session: resumes or replaces it when the CLI refuses its id, and which failure the page shows |
 | `brain/routines.ps1` | Task Scheduler state for the routines panel |
 | `brain/routines.json`, `brain/areas.json` | Defaults for the demo vault; `local/` overrides them |
 | `director/` | The director's prompt, base permissions and output schemas |
@@ -164,7 +165,7 @@ If your vault keeps a log of Claude Code sessions, add `^REFRESH (FULL|CHANGES) 
 | `local.example/` | A starting `local/` |
 | `examples/demo-vault/` | A small vault in the expected layout |
 | `data/` | Runtime state (gitignored): token, snapshots, director output, `days/<date>.json`, `usage-cache.json`, `usage-daily.json`, `usage-jev-rank.json`, `server.log` |
-| `tests/` | `python -m unittest discover -s tests`; `node --test tests/jev.test.mjs tests/agents.test.mjs` (the Jev call is mocked and the office is `tests/fake-office.mjs` on a loopback port, so nothing leaves the machine); `node tests/smoke.mjs ["a prompt"]` against a running server |
+| `tests/` | `python -m unittest discover -s tests`; `node --test tests/jev.test.mjs tests/agents.test.mjs tests/session.test.mjs` (the Jev call is mocked, the office is `tests/fake-office.mjs` on a loopback port and the CLI is a stand-in, so nothing leaves the machine); `node tests/smoke.mjs ["a prompt"]` against a running server |
 
 ## Settings (`local/config.json`)
 `port` (or `node server.mjs --port 4318` for a second copy), `refreshMinutes`, `model` (prompts and day end), `refreshModel` (full refreshes and the compact), `changesModel` (changes-only refreshes), `compactAboveTokens`, `skillsHub` (the note your skills hang off on the map), `briefUrl` plus `briefRoutine` (a link under the brief once that routine fired today), `title`, `subtitle`, `place`, and `"director": false` to read the brain without calling Claude.

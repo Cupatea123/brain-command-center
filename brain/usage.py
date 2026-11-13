@@ -90,6 +90,17 @@ def norm_server(name) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", str(name or ""))
 
 
+def server_key(name) -> str:
+    """What two spellings of one server have in common: `claude-in-chrome` in a config and
+    `Claude_in_Chrome` in a tool name differ only in case and in `-` against `_`."""
+    return norm_server(name).lower().replace("-", "_")
+
+
+def add_totals(target: dict, vals: dict) -> None:
+    for k, v in vals.items():
+        target[k] = max(target.get(k, 0), v) if k == "last" else target.get(k, 0) + v
+
+
 def short(skill: str) -> str:
     return skill.rsplit(":", 1)[-1]
 
@@ -480,7 +491,20 @@ def build_usage(cfg: dict, now: dt.datetime | None = None, skills_dirs=()) -> tu
     win, ever = totals(days, since), totals(days)
     inv = inventory(cfg, skills_dirs)
     recorded = claude_json(cfg)["skillUsage"]
-    labels = {norm_server(k): str(v) for k, v in cfg["connectorNames"].items()}
+
+    # One connector under all its spellings (see server_key). It keeps the spelling it is installed
+    # or configured under, else the one used most.
+    spelling: dict[str, str] = {}
+    for n in inv["connectors"]:
+        spelling.setdefault(server_key(n), n)
+    for n, _ in sorted(ever["connectors"].items(), key=lambda kv: (-kv[1]["calls"], kv[0])):
+        spelling.setdefault(server_key(n), n)
+    canon = lambda n: spelling.get(server_key(n), n)  # noqa: E731
+    for table in (win["connectors"], ever["connectors"]):
+        for n in [n for n in table if canon(n) != n]:
+            add_totals(table.setdefault(canon(n), {}), table.pop(n))
+    inv["connectors"] = {canon(k): v for k, v in reversed(list(inv["connectors"].items()))}  # the first source wins
+    labels = {canon(norm_server(k)): str(v) for k, v in cfg["connectorNames"].items()}
     hidden = [p.lower() for p in cfg["hideConnectors"]]
     shown = lambda key: not any(fnmatch.fnmatch(key.lower(), p) for p in hidden)  # noqa: E731
 
@@ -492,9 +516,7 @@ def build_usage(cfg: dict, now: dt.datetime | None = None, skills_dirs=()) -> tu
             by_short.setdefault(short(n), []).append(n)
     for table in (win["skills"], ever["skills"]):
         for n in [n for n in table if ":" not in n and n not in inv["skills"] and len(by_short.get(n, [])) == 1]:
-            target = table.setdefault(by_short[n][0], {"calls": 0, "in": 0, "out": 0, "cw": 0, "cr": 0, "ms": 0, "last": 0})
-            for k, v in table.pop(n).items():
-                target[k] = max(target[k], v) if k == "last" else target[k] + v
+            add_totals(table.setdefault(by_short[n][0], {}), table.pop(n))
 
     def rows(table: dict, label=lambda k: k, keep=lambda k: True) -> list[dict]:
         out = [{"key": k, "name": label(k), "calls": t["calls"], "last": iso(t["last"]), "tokens": tokens(t), "cache_read": t["cr"], "ms": t["ms"]}

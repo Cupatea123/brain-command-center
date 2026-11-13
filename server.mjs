@@ -10,6 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { candidates, rankWithJev, JEV_HOST, SENT_FIELDS, BASIS } from './jev.mjs';
 import { watchOffice, AGENTS_DEFAULTS } from './agents.mjs';
+import { callWithSession, refreshFailure } from './session.mjs';
 
 const CC = path.dirname(fileURLToPath(import.meta.url));
 const DATA = path.join(CC, 'data');
@@ -89,7 +90,7 @@ const P = {
   refreshSchema: path.join(CC, 'director', 'schemas', 'refresh.schema.json'),
   dayendSchema: path.join(CC, 'director', 'schemas', 'dayend.schema.json'),
 };
-const WATCHED = ['server.mjs', 'jev.mjs', 'agents.mjs', 'brain/snapshot.py', 'brain/usage.py', 'director/director.md', 'director/settings.json', 'local/config.json', 'local/director.md', 'local/settings.json'];
+const WATCHED = ['server.mjs', 'jev.mjs', 'agents.mjs', 'session.mjs', 'brain/snapshot.py', 'brain/usage.py', 'director/director.md', 'director/settings.json', 'local/config.json', 'local/director.md', 'local/settings.json'];
 const codeStamp = () => Math.max(...WATCHED.map((f) => { try { return fs.statSync(path.join(CC, f)).mtimeMs; } catch { return 0; } }));
 const CODE_AT_START = codeStamp();
 
@@ -177,7 +178,8 @@ function enqueue(key, label, fn) {
     setStatus({ core: 'busy', label });
     try { await fn(); } catch (e) {
       log('job failed', label, e.stack || e);
-      if (/^refresh/.test(label)) directorError = String(e.message || e).replace(/^director refresh returned no structured output: /, '');
+      const failure = refreshFailure(label, e.message || e);
+      if (failure !== null) directorError = failure;
       broadcast('error', { label, message: String(e.message || e), directorError });
     }
   }).finally(() => {
@@ -301,23 +303,9 @@ function directorArgs(extra, model = CONFIG.model) {
   return a.concat(extra);
 }
 
-async function callDirector(extra, prompt, onLine, model = CONFIG.model) {
-  let r = await run(EXE.claude, directorArgs(extra, model), { cwd: CONFIG.directorCwd, input: prompt, onLine });
-  // A first call that fails after the CLI has opened the session (a signed-out CLI, for one) still
-  // leaves a transcript under the id, and the CLI then refuses --session-id for it on every later
-  // call, which hides the real error. The session exists, so resume it.
-  if (r.code !== 0 && !state.sessionStarted && /session id \S+ is already in use/i.test(r.err + r.out)) {
-    log('director session id already has a transcript, resuming it');
-    state.sessionStarted = true; saveState();
-    r = await run(EXE.claude, directorArgs(extra, model), { cwd: CONFIG.directorCwd, input: prompt, onLine });
-  }
-  if (r.code !== 0 && state.sessionStarted && /no conversation found|session.*not found/i.test(r.err + r.out)) {
-    log('director session missing, starting a new one');
-    state.sessionId = crypto.randomUUID(); state.sessionStarted = false; state.sessionCost = 0; saveState();
-    r = await run(EXE.claude, directorArgs(extra, model), { cwd: CONFIG.directorCwd, input: prompt, onLine });
-  }
-  if (r.code === 0 && !state.sessionStarted) { state.sessionStarted = true; saveState(); }
-  return r;
+// One call in the director's session; session.mjs resumes or replaces the session when the CLI refuses its id.
+function callDirector(extra, prompt, onLine, model = CONFIG.model) {
+  return callWithSession(() => run(EXE.claude, directorArgs(extra, model), { cwd: CONFIG.directorCwd, input: prompt, onLine }), state, { save: saveState, log });
 }
 
 // `total_cost_usd` from a resumed session is the session's running total; keep the per-call delta
