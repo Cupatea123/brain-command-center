@@ -2,7 +2,11 @@
 // the AGENTS panel reads, asks for the same token header, and speaks just enough WebSocket to push
 // events. Used by tests/agents.test.mjs, and runnable by hand to see the panel without an office:
 //
-//   node tests/fake-office.mjs [--port 8765] [--token-file <path>]
+//   node tests/fake-office.mjs [--port 8765] [--token-file <path>] [--dir office-run/1-working]
+//
+// --dir serves another folder of fixtures (relative to tests/fixtures): office-run/1-working,
+// 2-meeting and 3-idle are three moments of a real run, rebuilt with made-up names. A route whose
+// file is not in the folder answers 404, as an office without that route does.
 //
 // With --token-file the file is created with a random test token if it does not exist, and every
 // request must then carry it. Point agents.url and agents.tokenFile in local/config.json at it.
@@ -14,12 +18,14 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const FIXTURES = path.join(HERE, 'fixtures', 'office');
-const ROUTES = { '/api/state': 'state.json', '/api/employees': 'employees.json', '/api/projects': 'projects.json', '/api/ceo/sessions': 'ceo_sessions.json', '/api/candidates/pending': 'candidates_pending.json' };
+const ROUTES = { '/api/state': 'state.json', '/api/employees': 'employees.json', '/api/projects': 'projects.json', '/api/ceo/sessions': 'ceo_sessions.json', '/api/candidates/pending': 'candidates_pending.json',
+  '/api/sprint-rooms': 'sprint_rooms.json', '/api/budget': 'budget.json', '/api/hr/replacements': 'hr_replacements.json' };
 
 export function startFakeOffice({ port = 0, token = '', dir = FIXTURES } = {}) {
   const overrides = {};
   const sockets = new Set();
   const seen = [];   // every request: { path, token } so a test can check what was sent
+  const has = (name) => (name in overrides ? overrides[name] !== undefined : fs.existsSync(path.join(dir, name)));
   const read = (name) => (name in overrides ? overrides[name] : JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')));
   const allowed = (req) => !token || req.headers['x-omc-token'] === token;
 
@@ -28,8 +34,8 @@ export function startFakeOffice({ port = 0, token = '', dir = FIXTURES } = {}) {
     seen.push({ path: p, token: req.headers['x-omc-token'] || '', query: new URL(req.url, 'http://x').search });
     const json = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (p.startsWith('/api/') && !allowed(req)) return json(401, { detail: 'Missing or invalid local token' });
-    if (ROUTES[p]) return json(200, read(ROUTES[p]));
-    if (p.startsWith('/api/ceo/sessions/')) return json(200, read('ceo_session.json')[p.slice('/api/ceo/sessions/'.length)] || { history: [], pending_count: 0 });
+    if (ROUTES[p]) return has(ROUTES[p]) ? json(200, read(ROUTES[p])) : json(404, { detail: 'Not Found' });
+    if (p.startsWith('/api/ceo/sessions/')) return json(200, (has('ceo_session.json') ? read('ceo_session.json') : {})[p.slice('/api/ceo/sessions/'.length)] || { history: [], pending_count: 0 });
     if (p === '/') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<!doctype html><title>Fake office</title><p>Fixture office for the AGENTS panel.</p>'); }
     return json(404, { detail: 'Not Found' });
   });
@@ -57,7 +63,7 @@ export function startFakeOffice({ port = 0, token = '', dir = FIXTURES } = {}) {
     url: `http://127.0.0.1:${server.address().port}`,
     seen,
     sockets,
-    set(name, value) { overrides[name] = value; },                           // replace one fixture
+    set(name, value) { overrides[name] = value; },                           // replace one fixture (undefined: answer 404)
     send(obj) { for (const s of sockets) s.write(frame(obj)); },             // push an event to every listener
     close() { for (const s of sockets) s.destroy(); server.closeAllConnections?.(); return new Promise((r) => server.close(r)); },
   })));
@@ -71,6 +77,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (!fs.existsSync(tokenFile)) fs.writeFileSync(tokenFile, crypto.randomBytes(24).toString('base64url') + '\n');
     token = fs.readFileSync(tokenFile, 'utf8').trim();
   }
-  const office = await startFakeOffice({ port: Number(arg('--port', 8765)), token });
-  console.log(`Fake office on ${office.url}${token ? ' (token required, read from the token file)' : ''}. Employees folder for agents.employeesDir: ${path.join(FIXTURES, 'employees')}`);
+  const dir = arg('--dir', '') ? path.resolve(HERE, 'fixtures', arg('--dir', '')) : FIXTURES;
+  const office = await startFakeOffice({ port: Number(arg('--port', 8765)), token, dir });
+  console.log(`Fake office on ${office.url}${token ? ' (token required, read from the token file)' : ''}, serving ${path.relative(HERE, dir)}. Employees folder for agents.employeesDir: ${path.join(FIXTURES, 'employees')}`);
 }

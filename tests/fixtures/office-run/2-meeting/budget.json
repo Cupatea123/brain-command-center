@@ -1,0 +1,151 @@
+{
+  "enabled": true,
+  "warn_percent": 80,
+  "raise_step_percent": 50,
+  "session": "budget-caps",
+  "company": {
+    "caps": {
+      "tokens": 40000000,
+      "turns": 0,
+      "window": "day"
+    },
+    "status": [
+      {
+        "scope_type": "company",
+        "scope_id": "company",
+        "metric": "tokens",
+        "window": "day",
+        "limit": 40000000,
+        "observed": 4720000,
+        "warn_at": 32000000,
+        "state": "ok",
+        "percent": 11
+      }
+    ]
+  },
+  "employees": {
+    "00002": {
+      "caps": {
+        "tokens": 15000000,
+        "turns": 0,
+        "window": "day"
+      },
+      "status": [
+        {
+          "scope_type": "employee",
+          "scope_id": "00002",
+          "metric": "tokens",
+          "window": "day",
+          "limit": 15000000,
+          "observed": 640000,
+          "warn_at": 12000000,
+          "state": "ok",
+          "percent": 4
+        }
+      ]
+    },
+    "00003": {
+      "caps": {
+        "tokens": 15000000,
+        "turns": 0,
+        "window": "day"
+      },
+      "status": [
+        {
+          "scope_type": "employee",
+          "scope_id": "00003",
+          "metric": "tokens",
+          "window": "day",
+          "limit": 15000000,
+          "observed": 0,
+          "warn_at": 12000000,
+          "state": "ok",
+          "percent": 0
+        }
+      ]
+    },
+    "00004": {
+      "caps": {
+        "tokens": 15000000,
+        "turns": 0,
+        "window": "day"
+      },
+      "status": [
+        {
+          "scope_type": "employee",
+          "scope_id": "00004",
+          "metric": "tokens",
+          "window": "day",
+          "limit": 15000000,
+          "observed": 2240000,
+          "warn_at": 12000000,
+          "state": "ok",
+          "percent": 14
+        }
+      ]
+    },
+    "00005": {
+      "caps": {
+        "tokens": 15000000,
+        "turns": 0,
+        "window": "day"
+      },
+      "status": [
+        {
+          "scope_type": "employee",
+          "scope_id": "00005",
+          "metric": "tokens",
+          "window": "day",
+          "limit": 15000000,
+          "observed": 0,
+          "warn_at": 12000000,
+          "state": "ok",
+          "percent": 0
+        }
+      ]
+    },
+    "00006": {
+      "caps": {
+        "tokens": 15000000,
+        "turns": 0,
+        "window": "day"
+      },
+      "status": [
+        {
+          "scope_type": "employee",
+          "scope_id": "00006",
+          "metric": "tokens",
+          "window": "day",
+          "limit": 15000000,
+          "observed": 1110000,
+          "warn_at": 12000000,
+          "state": "ok",
+          "percent": 7
+        }
+      ]
+    },
+    "00009": {
+      "caps": {
+        "tokens": 15000000,
+        "turns": 0,
+        "window": "day"
+      },
+      "status": [
+        {
+          "scope_type": "employee",
+          "scope_id": "00009",
+          "metric": "tokens",
+          "window": "day",
+          "limit": 15000000,
+          "observed": 730000,
+          "warn_at": 12000000,
+          "state": "ok",
+          "percent": 4
+        }
+      ]
+    }
+  },
+  "projects": {},
+  "paused": {},
+  "incidents": []
+}

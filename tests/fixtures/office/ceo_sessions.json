@@ -1,4 +1,6 @@
 {"sessions": [
+  {"project_id": "budget-caps", "pending_count": 1, "history_count": 2, "conv_id": "conv-b"},
+  {"project_id": "hr-replacements", "pending_count": 1, "history_count": 1, "conv_id": "conv-r"},
   {"project_id": "c0ffee123456/iter_001", "pending_count": 1, "history_count": 6, "conv_id": "conv-1"},
   {"project_id": "0f9e8d7c6b5a/iter_002", "pending_count": 1, "history_count": 3, "conv_id": "conv-2"},
   {"project_id": "a1b2c3d4e5f6/iter_001", "pending_count": 0, "history_count": 4, "conv_id": "conv-3"}

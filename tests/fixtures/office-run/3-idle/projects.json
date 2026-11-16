@@ -1,0 +1,11 @@
+{
+  "projects": [
+    {
+      "project_id": "c4d2e6f80a13",
+      "name": "handbook-sprint",
+      "task": "Three short pages for the team handbook, kept in the room folder.",
+      "status": "active",
+      "created_at": "2030-02-01T10:30:00"
+    }
+  ]
+}

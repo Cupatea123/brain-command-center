@@ -215,7 +215,18 @@
   // Who in the agent office is doing what (S.agents, kept current by the server from the office's
   // API and event stream). What the office waits on is merged into NEEDS, above.
   const AGENT_STATUS = { working: 'WORKING', in_meeting: 'IN MEETING', idle: 'IDLE', offline: 'OFFLINE', setup: 'NEEDS SETUP' };
-  const TOK_HELP = 'New tokens this employee has spent: input, output and cache writes, summed from its claude_usage.jsonl. Hover a number for what was re-read from cache.';
+  const TOK_HELP = {
+    budget: 'The office\'s own figure from its budget, the number its caps count: every token, cache reads included, in the cap\'s window. Where the office has no figure for someone, the number comes from their claude_usage.jsonl and the hover says so.',
+    usage: 'New tokens this employee has spent: input, output and cache writes, summed from its claude_usage.jsonl (the office answered no budget). Cache reads are left out; hover a number for them.',
+  };
+  const WINDOW = { day: 'today', total: 'in total' };
+  function tokCell(t) {
+    if (t.source === 'budget') {
+      const span = WINDOW[t.window] || (t.window ? 'per ' + t.window : '');
+      return { text: fmtTok(t.tokens), title: `${num(t.tokens)} tokens ${span} as the office's budget counts them (input, output, cache writes and cache reads)` + (t.limit ? ` · ${t.percent}% of the ${num(t.limit)} cap${t.state && t.state !== 'ok' ? ' · ' + t.state : ''}` : '') };
+    }
+    return { text: fmtTok(t.tokens), title: `From claude_usage.jsonl: ${num(t.tokens)} new tokens · ${num(t.cache_read)} re-read from cache · ${t.turns} turns in ${t.runs} run${t.runs === 1 ? '' : 's'}${t.last ? ' · last ' + hhmm(t.last) : ''}` };
+  }
   function renderAgents() {
     const a = S.agents;
     $('agents-panel').hidden = !a;
@@ -232,7 +243,10 @@
     const c = a.counts;
     meta.append(document.createTextNode([`${c.working} working`, c.in_meeting ? `${c.in_meeting} in a meeting` : '', `${c.total} employees`, a.state === 'up' ? (a.live ? 'live' : 'polling') : 'last known'].filter(Boolean).join(' · ') + ' · '));
     const open = el('a', '', 'open the office ↗'); open.href = a.url; open.target = '_blank'; open.rel = 'noopener'; meta.appendChild(open);
-    $('agents-tok-th').title = a.tokensAvailable ? TOK_HELP : 'Not available: set agents.employeesDir in local/config.json to the employees folder of the office.';
+    const th = $('agents-tok-th'); th.textContent = 'TOKENS';
+    const src = a.tokenSource === 'budget' ? 'office budget' + (WINDOW[a.tokenWindow] ? ' · ' + WINDOW[a.tokenWindow] : '') : a.tokenSource === 'usage' ? 'usage log' : '';
+    if (src) th.appendChild(el('span', 'th-src', src));
+    th.title = a.tokensAvailable ? TOK_HELP[a.tokenSource] || TOK_HELP.usage : 'Not available: the office answered no budget, and agents.employeesDir in local/config.json is not set to its employees folder.';
     const tb = $('agents'); tb.innerHTML = '';
     if (!a.employees.length) { const tr = el('tr', 'none'); const td = el('td', '', 'The office has no employees yet.'); td.colSpan = 5; tr.appendChild(td); tb.appendChild(tr); }
     for (const e of a.employees) {
@@ -245,10 +259,12 @@
       if (e.project) task.appendChild(el('span', 'proj', e.project));
       task.title = e.task || '';
       const tok = el('td', 'tok');
-      if (!a.tokensAvailable) { tok.textContent = 'n/a'; tok.classList.add('na'); tok.title = 'Not available: agents.employeesDir is not set.'; }
-      else if (!e.tokens) { tok.textContent = '–'; tok.classList.add('na'); tok.title = 'No claude_usage.jsonl for this employee yet.'; }
-      else { tok.textContent = fmtTok(e.tokens.tokens); tok.title = `${num(e.tokens.tokens)} new tokens · ${num(e.tokens.cache_read)} re-read from cache · ${e.tokens.turns} turns in ${e.tokens.runs} run${e.tokens.runs === 1 ? '' : 's'}${e.tokens.last ? ' · last ' + hhmm(e.tokens.last) : ''}`; }
-      tr.append(who, el('td', 'st ' + e.status, AGENT_STATUS[e.status] || String(e.status).toUpperCase()), task, el('td', 'room', e.room || '–'), tok);
+      if (!a.tokensAvailable) { tok.textContent = 'n/a'; tok.classList.add('na'); tok.title = 'Not available: no budget from the office and agents.employeesDir is not set.'; }
+      else if (!e.tokens) { tok.textContent = '–'; tok.classList.add('na'); tok.title = 'No figure in the office\'s budget and no claude_usage.jsonl for this employee yet.'; }
+      else { const c = tokCell(e.tokens); tok.textContent = c.text; tok.title = c.title; if (e.tokens.source !== a.tokenSource) tok.classList.add('alt'); }
+      const room = el('td', 'room', e.room || '–');
+      if (e.room) room.title = e.roomKind === 'meeting' ? (e.chair ? 'Chairing a meeting here' : 'In a meeting here') : e.roomKind === 'sprint' ? 'On the team of this sprint room' : '';
+      tr.append(who, el('td', 'st ' + e.status, AGENT_STATUS[e.status] || String(e.status).toUpperCase()), task, room, tok);
       tb.appendChild(tr);
     }
   }

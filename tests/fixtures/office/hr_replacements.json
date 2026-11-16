@@ -1,0 +1,12 @@
+{
+  "enabled": true, "session": "hr-replacements", "reviewed": 1, "reviews_before_auto": 3, "human_approval": true,
+  "requests": [
+    {"id": "4c5d6e7f8a9b", "status": "open", "created_at": "2030-01-15T09:50:00+00:00", "resolved_at": "", "answer": "", "announced": true,
+     "fired": {"id": "00008", "reason": "Two reviews in a row below the bar: briefs missed, work redone twice.", "name": "Copywriter", "nickname": "Quill", "role": "Writer", "department": "Marketing", "level": 1},
+     "evidence": {"reviews": [], "rejections": []}, "old_card": {}, "new_card": {"role_guide": "Writes short marketing copy to a brief."}, "draft_source": "hr", "edits": [],
+     "parked": [{"node_id": "n1", "title": "Newsletter intro"}, {"node_id": "n2", "title": "Launch post"}], "replacement_id": "", "handed_over": []},
+    {"id": "0a0a0a0a0a0a", "status": "hired", "created_at": "2030-01-10T09:00:00+00:00", "resolved_at": "2030-01-10T09:20:00+00:00", "answer": "approve", "announced": true,
+     "fired": {"id": "00010", "reason": "An old request, already settled.", "name": "Old Hand", "nickname": "Rust"}, "evidence": {}, "old_card": {}, "new_card": {}, "draft_source": "hr", "edits": [],
+     "parked": [], "replacement_id": "00007", "handed_over": []}
+  ]
+}

@@ -1,0 +1,36 @@
+[
+  {
+    "id": "5e1f0c2a",
+    "name": "handbook-sprint",
+    "goal": "Three short pages for the team handbook, kept in the room folder.",
+    "status": "open",
+    "opened_at": "2030-02-01T10:30:00+00:00",
+    "closed_at": "",
+    "project_id": "c4d2e6f80a13",
+    "team": [
+      "00006",
+      "00009"
+    ],
+    "waiting": [],
+    "held_seats": [],
+    "mode": "standard",
+    "auto_start": true,
+    "started": true,
+    "floor": "dept-general",
+    "position": [
+      1,
+      12
+    ],
+    "capacity": 8,
+    "team_members": [
+      {
+        "id": "00006",
+        "label": "Wren (00006)"
+      },
+      {
+        "id": "00009",
+        "label": "Juniper (00009)"
+      }
+    ]
+  }
+]

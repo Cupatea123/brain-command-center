@@ -21,7 +21,14 @@ async function until(fn, ms = 4000) {
   while (Date.now() - t0 < ms) { if (fn()) return true; await new Promise((r) => setTimeout(r, 25)); }
   return false;
 }
+// raw(): an office without the sprint room, budget and replacement routes; full(): with them.
 const raw = () => ({ state: fx('state.json'), employees: fx('employees.json'), sessions: fx('ceo_sessions.json'), sessionDetail: fx('ceo_session.json'), candidates: fx('candidates_pending.json'), projects: fx('projects.json') });
+const full = () => ({ ...raw(), sprintRooms: fx('sprint_rooms.json'), budget: fx('budget.json'), replacements: fx('hr_replacements.json') });
+// Three moments of a real run (an employee working in a sprint room, a review meeting, all idle),
+// rebuilt from what the office sent with made-up names: tests/fixtures/office-run/<moment>.
+const RUN = path.join(path.dirname(FIXTURES), 'office-run');
+const moment = (m) => { const r = (n) => JSON.parse(fs.readFileSync(path.join(RUN, m, n), 'utf8')); return { state: r('state.json'), employees: r('employees.json'), projects: r('projects.json'), sprintRooms: r('sprint_rooms.json'), budget: r('budget.json'), sessions: r('ceo_sessions.json'), candidates: r('candidates_pending.json') }; };
+const rows = (v) => Object.fromEntries(v.employees.map((e) => [e.id, e]));
 
 test('every employee gets a status, a task, a room and tokens', () => {
   const v = buildView(raw(), { url: 'http://127.0.0.1:8000', tokensFor: (id) => usageTotals(EMPLOYEES_DIR, id) });
@@ -61,8 +68,12 @@ test('an idle employee shows no task, even when the office left an old summary o
 
 test('what waits on the owner: hire choices and pending answers, each with a link into the office', () => {
   const v = buildView(raw(), { url: 'http://127.0.0.1:8000' });
-  assert.deepEqual(v.waiting.map((w) => w.kind), ['hire', 'sign-off', 'answer']);
-  const [hire, sign, ask] = v.waiting;
+  assert.deepEqual(v.waiting.map((w) => w.kind), ['hire', 'budget', 'replacement', 'sign-off', 'answer']);
+  const [hire, budget, replace, sign, ask] = v.waiting;
+  // without the budget and replacement routes their sessions still show, named for what they are
+  assert.equal(budget.title, 'Budget pause: answer needed');
+  assert.equal(budget.url, 'http://127.0.0.1:8000/#ceo-session=budget-caps');
+  assert.equal(replace.title, 'Replacement: answer needed');
   assert.equal(hire.title, 'Choose a hire: 3 candidates');
   assert.match(hire.detail, /Data Analyst \(Analyst\), Copywriter \(Writer\)/);
   assert.equal(hire.url, 'http://127.0.0.1:8000/#candidates=9f3a1c2b');
@@ -70,7 +81,7 @@ test('what waits on the owner: hire choices and pending answers, each with a lin
   assert.match(sign.detail, /Reply to confirm/);
   assert.equal(sign.url, 'http://127.0.0.1:8000/#ceo-session=c0ffee123456%2Fiter_001');
   assert.equal(ask.title, 'Answer needed: Landing page');
-  assert.equal(new Set(v.waiting.map((w) => w.key)).size, 3);
+  assert.equal(new Set(v.waiting.map((w) => w.key)).size, 5);
   // nothing pending, nothing listed
   const quiet = buildView({ ...raw(), sessions: { sessions: [] }, candidates: { batches: {} } });
   assert.deepEqual(quiet.waiting, []);
@@ -81,6 +92,125 @@ test('an office that answers with less still gives a view', () => {
   assert.equal(v.employees[0].status, 'idle');
   assert.deepEqual(v.waiting, []);
   assert.deepEqual(buildView({}).employees, []);
+});
+
+test('a real run, working: the employee at work in a sprint room shows as working, with its task, project and room', () => {
+  const v = buildView(moment('1-working'), { url: 'http://127.0.0.1:8000' });
+  const by = rows(v);
+  assert.deepEqual(v.counts, { total: 6, working: 2, in_meeting: 0, idle: 4 });
+  assert.equal(by['00006'].status, 'working');
+  assert.match(by['00006'].task, /^Page 1, for Wren/);
+  assert.equal(by['00006'].project, 'Three short pages for the team handbook, kept in the room folder.');
+  assert.equal(by['00006'].room, 'handbook-sprint', 'the open sprint room it works in is named');
+  assert.equal(by['00006'].roomKind, 'sprint');
+  assert.equal(by['00004'].status, 'working');
+  assert.match(by['00004'].task, /dispatch each part/);
+  assert.equal(by['00004'].room, '', 'the EA is not on the room\'s team');
+  assert.equal(by['00009'].status, 'idle');
+  assert.equal(by['00009'].room, 'handbook-sprint', 'a team member who is not working still sits in the room');
+  assert.equal(by['00002'].room, '');
+  assert.deepEqual(v.employees.slice(0, 2).map((e) => e.id), ['00004', '00006']);
+});
+
+test('a real run, the review meeting: everyone in it reads as in the meeting, the chair included', () => {
+  const v = buildView(moment('2-meeting'));
+  const by = rows(v);
+  assert.deepEqual(v.counts, { total: 6, working: 0, in_meeting: 4, idle: 2 });
+  // the chair booked the room and is not among its participants; the office has it idle
+  assert.equal(by['00002'].status, 'in_meeting');
+  assert.equal(by['00002'].chair, true);
+  for (const id of ['00002', '00004', '00006', '00009']) {
+    assert.equal(by[id].room, 'Town Hall', id);
+    assert.equal(by[id].roomKind, 'meeting', id);
+  }
+  assert.equal(by['00006'].chair, false);
+  assert.equal(by['00003'].status, 'idle');
+  assert.equal(by['00003'].room, '');
+});
+
+test('a booked room whose meeting is over keeps nobody in a meeting', () => {
+  const v3 = buildView(moment('3-idle'));
+  assert.deepEqual(v3.counts, { total: 6, working: 0, in_meeting: 0, idle: 6 });
+  assert.equal(rows(v3)['00002'].room, '');
+  assert.equal(rows(v3)['00006'].room, 'handbook-sprint', 'the sprint room is still open');
+  // the same moment with the room still marked booked, as the office can leave it
+  const stale = moment('3-idle');
+  Object.assign(stale.state.meeting_rooms[0], { is_booked: true, booked_by: '00002', participants: ['00004', '00006', '00009'] });
+  const v = buildView(stale);
+  const by = rows(v);
+  assert.equal(v.counts.in_meeting, 0);
+  for (const id of ['00002', '00004', '00009']) assert.equal(by[id].status, 'idle', id);
+  for (const id of ['00002', '00004']) assert.equal(by[id].room, '', id);
+  assert.equal(by['00006'].room, 'handbook-sprint', 'back in its sprint room, not in the old meeting');
+  // a closed sprint room seats nobody
+  const closed = moment('3-idle');
+  closed.sprintRooms[0].status = 'closed';
+  assert.equal(rows(buildView(closed))['00006'].room, '');
+});
+
+test('TOKENS: the office\'s budget figure when it has one, the usage log otherwise, and the view says which', () => {
+  const v = buildView(moment('1-working'), { tokensFor: () => ({ tokens: 5, cache_read: 0, turns: 1, runs: 1, last: '' }) });
+  const by = rows(v);
+  assert.equal(v.tokenSource, 'budget');
+  assert.equal(v.tokenWindow, 'day');
+  assert.deepEqual(by['00004'].tokens, { source: 'budget', tokens: 1910000, window: 'day', limit: 15000000, percent: 12, state: 'ok' });
+  assert.equal(by['00009'].tokens.tokens, 0, 'a budget figure of 0 is a figure');
+  assert.equal(by['00009'].tokens.source, 'budget');
+  // only some employees in the budget: the rest come from their usage log, marked as such
+  const part = raw();
+  part.budget = { employees: { '00004': fx('budget.json').employees['00004'], '00003': { caps: {}, status: [] } } };
+  const p = rows(buildView(part, { tokensFor: (id) => usageTotals(EMPLOYEES_DIR, id) }));
+  assert.equal(p['00004'].tokens.source, 'budget');
+  assert.equal(p['00004'].tokens.tokens, 1250000);
+  assert.equal(p['00006'].tokens.source, 'usage');
+  assert.equal(p['00006'].tokens.tokens, 1000);
+  assert.equal(p['00003'].tokens, null, 'no cap and no usage log: no number');
+  // no budget at all: the usage log, as before
+  const u = buildView(raw(), { tokensFor: (id) => usageTotals(EMPLOYEES_DIR, id) });
+  assert.equal(u.tokenSource, 'usage');
+  assert.equal(u.tokenWindow, '');
+});
+
+test('a budget pause waiting on the owner is in NEEDS with a link to the budget session', () => {
+  const v = buildView(full(), { url: 'http://127.0.0.1:8000' });
+  const b = v.waiting.filter((w) => w.kind === 'budget');
+  assert.equal(b.length, 1, 'only the open request; the one already raised is not listed');
+  assert.equal(b[0].key, 'budget:b0d9e1f2a3c4');
+  assert.equal(b[0].title, 'Budget pause: Finch');
+  assert.match(b[0].detail, /^1,520,000 of 1,500,000 tokens today\. Nothing runs for it/);
+  assert.equal(b[0].url, 'http://127.0.0.1:8000/#ceo-session=budget-caps');
+  assert.ok(!v.waiting.some((w) => w.key === 'session:budget-caps'), 'the budget session is not listed a second time');
+  // a paused project and the whole office are named too
+  const one = (i) => buildView({ employees: [], projects: fx('projects.json'), budget: { incidents: [{ id: 'x', status: 'open', metric: 'tokens', limit: 10, observed: 12, ...i }] } }).waiting[0].title;
+  assert.equal(one({ scope_type: 'project', scope_id: 'a1b2c3d4e5f6', window: 'total' }), 'Budget pause: Team notes: pick an app');
+  assert.equal(one({ scope_type: 'company', scope_id: 'company', window: 'day' }), 'Budget pause: the whole office');
+});
+
+test('a replacement waiting on the owner is in NEEDS with a link to its review page', () => {
+  const v = buildView(full(), { url: 'http://127.0.0.1:8000' });
+  const r = v.waiting.filter((w) => w.kind === 'replacement');
+  assert.equal(r.length, 1, 'only the open request; the hired one is not listed');
+  assert.equal(r[0].title, 'Approve a replacement for Quill');
+  assert.match(r[0].detail, /below the bar.*2 tasks parked until the new hire starts\./);
+  assert.equal(r[0].url, 'http://127.0.0.1:8000/replacement.html#4c5d6e7f8a9b');
+  assert.ok(!v.waiting.some((w) => w.key === 'session:hr-replacements'), 'the replacement session is not listed a second time');
+  assert.deepEqual(v.waiting.map((w) => w.kind), ['budget', 'replacement', 'hire', 'sign-off', 'answer']);
+  // no office address: no link
+  assert.equal(buildView(full()).waiting.find((w) => w.kind === 'replacement').url, '');
+});
+
+test('the stand-in office serves a moment of the run: the budget gives the numbers without the employees folder', async () => {
+  const office = await startFakeOffice({ dir: path.join(RUN, '2-meeting') });
+  const w = watchOffice({ url: office.url }, { WS: null });
+  try {
+    assert.ok(await until(() => w.view().state === 'up'));
+    const v = w.view();
+    assert.equal(v.counts.in_meeting, 4);
+    assert.equal(v.tokensAvailable, true);
+    assert.equal(v.tokenSource, 'budget');
+    assert.deepEqual(v.waiting, []);
+    assert.ok(office.seen.some((r) => r.path === '/api/hr/replacements'), 'asked for replacements even though this office has none');
+  } finally { w.stop(); await office.close(); }
 });
 
 test('tokens are summed from the usage log; no folder, no file or an odd id gives none', () => {
@@ -109,8 +239,10 @@ test('a running office: rows arrive, the token goes in a header only and never i
     assert.ok(await until(() => w.view().state === 'up' && w.view().live), 'office reached and event stream open');
     const v = w.view();
     assert.equal(v.employees.length, 6);
-    assert.equal(v.waiting.length, 3);
+    assert.deepEqual(v.waiting.map((w) => w.kind), ['budget', 'replacement', 'hire', 'sign-off', 'answer']);
     assert.equal(v.tokensAvailable, true);
+    assert.equal(v.tokenSource, 'budget');
+    assert.equal(v.employees.find((e) => e.id === '00006')?.room, 'app-pick', 'the sprint room was read');
     assert.equal(v.url, office.url);
     assert.ok(office.seen.length >= 6 && office.seen.every((r) => r.token === TOKEN), 'every request carried the token header');
     assert.ok(office.seen.every((r) => !r.query.includes(TOKEN) && !r.path.includes(TOKEN)), 'the token is never in an address');

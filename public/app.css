@@ -217,6 +217,9 @@ b { font-weight: 600; }
 .agents td.room { white-space: nowrap; }
 .agents td.tok { color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; cursor: help; }
 .agents td.tok.na, .agents tr.none td { color: var(--dim); }
+.agents td.tok.alt { color: var(--soft); font-style: italic; }
+.agents th .th-src { display: block; letter-spacing: .04em; font-size: 9px; text-transform: none; color: var(--dim); opacity: .8; }
+.agents td.room[title] { cursor: help; }
 .agents-off { margin: 0; font-size: 12px; color: var(--soft); }
 .agents-off b { font: 600 10px/1 var(--mono); letter-spacing: .12em; color: var(--dim); border: 1px solid var(--line-2); border-radius: 3px; padding: 2px 6px; margin-right: 8px; }
 .agents-off.reconnecting { margin-bottom: 10px; }

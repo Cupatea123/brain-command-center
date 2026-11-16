@@ -1,0 +1,5 @@
+[
+  {"id": "9a8b7c6d", "name": "app-pick", "goal": "Pick a note-taking app for the team", "status": "open", "opened_at": "2030-01-15T09:00:00+00:00", "closed_at": "", "project_id": "a1b2c3d4e5f6",
+   "team": ["00006"], "waiting": [{"employee_id": "00007", "since": "2030-01-15T09:00:00+00:00", "label": "Pixel (00007)"}], "held_seats": [], "mode": "standard", "auto_start": true, "started": true,
+   "floor": "dept-general", "position": [1, 12], "capacity": 8, "team_members": [{"id": "00006", "label": "Finch (00006)"}]}
+]

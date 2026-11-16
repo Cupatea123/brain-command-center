@@ -1,0 +1,63 @@
+{
+  "version": "0.0.0-fixture",
+  "employees": [],
+  "ex_employees": [],
+  "tools": [],
+  "meeting_rooms": [
+    {
+      "id": "town_hall",
+      "name": "Town Hall",
+      "description": "The big room",
+      "capacity": 100,
+      "position": [
+        1,
+        4
+      ],
+      "floor": "lobby",
+      "sprite": "meeting_room",
+      "booked_by": "00002",
+      "participants": [
+        "00004",
+        "00006",
+        "00009"
+      ],
+      "is_booked": true,
+      "agenda": {}
+    },
+    {
+      "id": "room_a",
+      "name": "Room A",
+      "description": "",
+      "capacity": 6,
+      "position": [
+        9,
+        4
+      ],
+      "floor": "lobby",
+      "sprite": "meeting_room",
+      "booked_by": "",
+      "participants": [],
+      "is_booked": false,
+      "agenda": {}
+    }
+  ],
+  "ceo_tasks": [
+    "Three short pages for the team handbook, kept in the room folder."
+  ],
+  "active_tasks": [],
+  "activity_log": [],
+  "company_culture": [],
+  "office_layout": {
+    "sprint_room_positions": {
+      "5e1f0c2a": [
+        1,
+        12
+      ]
+    },
+    "sprint_room_floors": {
+      "5e1f0c2a": "dept-general"
+    }
+  },
+  "sales_tasks": [],
+  "company_tokens": 0
+}
