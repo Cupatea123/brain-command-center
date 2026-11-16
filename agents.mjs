@@ -12,7 +12,7 @@ export const AGENTS_DEFAULTS = {
   url: '',            // the office's address, e.g. http://127.0.0.1:8000 ('' = no office to watch)
   tokenFile: '',      // the file that holds the office's local token (<office>/.onemancompany/local_token)
   employeesDir: '',   // the office's employees folder; each employee's claude_usage.jsonl gives the TOKENS column
-                      // when the office's /api/budget has no figure for that employee
+                      // when the office has never answered /api/budget
   pollSeconds: 20,    // a full re-read this often, on top of the event stream
   graceSeconds: 60,   // how long a silent office counts as "restarting" before it counts as not running
 };
@@ -82,12 +82,17 @@ export function buildView(raw, { url = '', tokensFor = () => null } = {}) {
   const sprints = (Array.isArray(raw.sprintRooms) ? raw.sprintRooms : raw.sprintRooms?.rooms || [])
     .filter((r) => r && (r.status || 'open') === 'open');
 
-  // Tokens: the office's own budget figure when it has one for the employee (what its caps count:
-  // input, output, cache writes and cache reads, in the cap's window); else the usage log's count.
+  // Tokens: one count for the whole table, never a mix. When the office answers its budget, every
+  // figure is the budget's (what its caps count: input, output, cache writes and cache reads, in the
+  // cap's window) and an employee it has no figure for has none; only an office without a budget
+  // gives the usage log's count.
+  const hasBudget = !!raw.budget && typeof raw.budget.employees === 'object' && raw.budget.employees !== null;
   const budgetRow = (id) => (raw.budget?.employees?.[id]?.status || []).find((s) => s && s.metric === 'tokens');
   const tokensOf = (id) => {
-    const b = budgetRow(id);
-    if (b) return { source: 'budget', tokens: b.observed || 0, window: b.window || '', limit: b.limit || 0, percent: b.percent ?? 0, state: b.state || '' };
+    if (hasBudget) {
+      const b = budgetRow(id);
+      return b ? { source: 'budget', tokens: b.observed || 0, window: b.window || '', limit: b.limit || 0, percent: b.percent ?? 0, state: b.state || '' } : null;
+    }
     const u = tokensFor(id);
     return u ? { source: 'usage', ...u } : null;
   };
@@ -114,7 +119,7 @@ export function buildView(raw, { url = '', tokensFor = () => null } = {}) {
       tokens: tokensOf(id),
     };
   }).sort((a, b) => (ORDER[a.status] ?? 2) - (ORDER[b.status] ?? 2) || a.id.localeCompare(b.id));
-  const tokenSource = employees.some((e) => e.tokens?.source === 'budget') ? 'budget' : employees.some((e) => e.tokens) ? 'usage' : '';
+  const tokenSource = hasBudget ? 'budget' : employees.some((e) => e.tokens) ? 'usage' : '';
   const windows = [...new Set(employees.filter((e) => e.tokens?.source === 'budget').map((e) => e.tokens.window))];
 
   // What only the owner can settle. The office has no page addresses for most of these, so each
@@ -180,13 +185,17 @@ export function buildView(raw, { url = '', tokensFor = () => null } = {}) {
   };
 }
 
-const EMPTY = { employees: [], waiting: [], tokenSource: '', tokenWindow: '', counts: { total: 0, working: 0, in_meeting: 0, idle: 0 } };
+const EMPTY = { employees: [], waiting: [], tokenSource: '', tokenWindow: '', budgetAsOf: '', counts: { total: 0, working: 0, in_meeting: 0, idle: 0 } };
 
 // Keeps one view of the office current and calls onChange(view) when it changes.
 //   state 'unconfigured': no agents.url         'up': answering
 //   state 'reconnecting': it answered less than graceSeconds ago (it restarts itself after every
 //                         hire); the last rows stay on the page
 //   state 'down': not running, or it refused the token
+//   live: the event stream is open and has delivered (the office greets every new listener), so a
+//         change shows within a second; false means the page is only as fresh as the last poll
+//   budgetAsOf: '' while the budget figures are from the last read; the time they were read when
+//         the office's budget has not answered since (the figures are kept, not swapped for another count)
 export function watchOffice(config, { onChange = () => {}, log = () => {}, fetchImpl = globalThis.fetch, WS = globalThis.WebSocket } = {}) {
   const cfg = { ...AGENTS_DEFAULTS, ...(config || {}) };
   let base = String(cfg.url || '').trim().replace(/\/+$/, '');
@@ -196,7 +205,8 @@ export function watchOffice(config, { onChange = () => {}, log = () => {}, fetch
   let view = base ? { ...fixed, ...EMPTY, state: 'down', reason: 'Checking the office…' }
     : { ...fixed, ...EMPTY, state: 'unconfigured', reason: problem || 'No agent office is set. Add agents.url to local/config.json to watch one.' };
   let lastOk = 0, lostAt = 0, restarting = false, busy = false, again = false, stopped = false;
-  let timer = null, debounce = null, ws = null;
+  let timer = null, debounce = null, ws = null, streaming = false, lastStart = 0;
+  let budget = null, budgetAt = 0;   // the office's last budget answer and when it came
 
   const same = (a, b) => JSON.stringify({ ...a, seen: '' }) === JSON.stringify({ ...b, seen: '' });
   function set(next) {
@@ -209,19 +219,19 @@ export function watchOffice(config, { onChange = () => {}, log = () => {}, fetch
   async function get(p, token) {
     const r = await fetchImpl(base + p, { headers: token ? { [TOKEN_HEADER]: token } : {}, redirect: 'error', signal: AbortSignal.timeout(8000) });
     if (r.status === 401 || r.status === 403) { const e = new Error('unauthorized'); e.unauthorized = true; throw e; }
-    if (!r.ok) throw new Error(`${p}: HTTP ${r.status}`);
+    if (!r.ok) { const e = new Error(`${p}: HTTP ${r.status}`); e.status = r.status; e.route = p; throw e; }
     return r.json();
   }
 
   async function refresh() {
     if (!base || stopped) return;
     if (busy) { again = true; return; }
-    busy = true;
+    busy = true; lastStart = Date.now();
     try {
       const token = readToken(cfg.tokenFile);
       const [state, employees] = await Promise.all([get('/api/state', token), get('/api/employees', token)]);
       const soft = (p) => get(p, token).catch(() => null);
-      const [sessions, candidates, projects, sprintRooms, budget, replacements] = await Promise.all([
+      const [sessions, candidates, projects, sprintRooms, budgetNow, replacements] = await Promise.all([
         soft('/api/ceo/sessions'), soft('/api/candidates/pending'), soft('/api/projects'),
         soft('/api/sprint-rooms'), soft('/api/budget'), soft('/api/hr/replacements'),
       ]);
@@ -229,16 +239,22 @@ export function watchOffice(config, { onChange = () => {}, log = () => {}, fetch
       const details = await Promise.all(pending.map((s) => soft('/api/ceo/sessions/' + String(s.project_id).split('/').map(encodeURIComponent).join('/'))));
       const sessionDetail = Object.fromEntries(pending.map((s, i) => [s.project_id, details[i]]));
       lastOk = Date.now(); lostAt = 0; restarting = false;
+      // A budget read that fails or times out keeps the last figures, with their time, rather than
+      // switching the whole column to the usage log's different count for one poll.
+      if (budgetNow) { budget = budgetNow; budgetAt = lastOk; }
+      else if (budget && !view.budgetAsOf) log(`agents: the office's budget did not answer; keeping its figures from ${new Date(budgetAt).toISOString()}`);
       const built = buildView({ state, employees, sessions, sessionDetail, candidates, projects, sprintRooms, budget, replacements }, { url: base, tokensFor: (id) => usageTotals(cfg.employeesDir, id) });
       // The office's budget gives numbers even without the employees folder.
-      set({ ...fixed, live: view.live, seen: new Date(lastOk).toISOString(), state: 'up', reason: '', ...built, tokensAvailable: fixed.tokensAvailable || built.tokenSource === 'budget' });
+      set({ ...fixed, live: streaming, seen: new Date(lastOk).toISOString(), state: 'up', reason: '', ...built,
+        budgetAsOf: budget && !budgetNow ? new Date(budgetAt).toISOString() : '', tokensAvailable: fixed.tokensAvailable || built.tokenSource === 'budget' });
       openSocket(token);
     } catch (e) {
       const seen = lastOk ? new Date(lastOk).toISOString() : '';
       if (e.unauthorized) {
         set({ ...fixed, seen, ...EMPTY, state: 'down', reason: cfg.tokenFile ? 'The office refused the token in agents.tokenFile.' : 'The office asks for a token. Set agents.tokenFile in local/config.json.' });
       } else if (lastOk && Date.now() - (lostAt = lostAt || Date.now()) < cfg.graceSeconds * 1000) {   // the grace runs from the first miss
-        set({ ...view, live: false, seen, state: 'reconnecting', reason: restarting ? 'The office is restarting.' : 'The office stopped answering. Trying again.' });
+        const why = restarting ? 'The office is restarting.' : e.status ? `The office answered HTTP ${e.status} on ${e.route}. Trying again.` : 'The office stopped answering. Trying again.';
+        set({ ...view, live: false, seen, state: 'reconnecting', reason: why });
       } else {
         set({ ...fixed, seen, ...EMPTY, state: 'down', reason: 'The office is not running.' });
       }
@@ -256,10 +272,13 @@ export function watchOffice(config, { onChange = () => {}, log = () => {}, fetch
     timer = setTimeout(refresh, ms);
     timer.unref?.();
   }
+  // An event re-reads the office 300 ms later, and never sooner than 600 ms after the last read
+  // began, so a busy office is read under twice a second. Events that come while that read waits
+  // ride along with it instead of pushing it back (a busy office sends them faster than that);
+  // events that come while a read runs get one more read after it.
   function soon() {
-    clearTimeout(debounce);
-    if (stopped) return;
-    debounce = setTimeout(refresh, 300);
+    if (stopped || debounce) return;
+    debounce = setTimeout(() => { debounce = null; refresh(); }, Math.max(300, lastStart + 600 - Date.now()));
     debounce.unref?.();
   }
 
@@ -268,15 +287,22 @@ export function watchOffice(config, { onChange = () => {}, log = () => {}, fetch
     let sock;
     try { sock = new WS(base.replace(/^http/, 'ws') + '/ws', { headers: token ? { [TOKEN_HEADER]: token } : {} }); } catch { return; }
     ws = sock;
-    sock.addEventListener('open', () => { if (ws === sock && view.state === 'up') set({ ...view, live: true }); });
+    let opened = false;
+    sock.addEventListener('open', () => { opened = true; });
+    // live follows the socket the panel listens on, not the last view: a failed read in between
+    // (the view then says reconnecting, live false) does not leave it off once reads succeed again.
     sock.addEventListener('message', (ev) => {
+      if (ws !== sock) return;
+      if (!streaming) { streaming = true; if (view.state === 'up') set({ ...view, live: true }); }
       let m;
       try { m = JSON.parse(ev.data); } catch { return; }
       if (!m || QUIET.has(m.type)) return;
       if (m.type === 'backend_restart_scheduled') restarting = true;
       soon();
     });
-    const gone = () => { if (ws !== sock) return; ws = null; if (view.live) set({ ...view, live: false }); soon(); };
+    // The stream dropped: re-read now, which opens a new one. One that never opened (the office
+    // refused it) is tried again at the next poll, not in a loop.
+    const gone = () => { if (ws !== sock) return; ws = null; streaming = false; if (view.live) set({ ...view, live: false }); if (opened) soon(); };
     sock.addEventListener('close', gone);
     sock.addEventListener('error', gone);
   }
@@ -285,6 +311,6 @@ export function watchOffice(config, { onChange = () => {}, log = () => {}, fetch
   return {
     view: () => view,
     refresh,
-    stop() { stopped = true; clearTimeout(timer); clearTimeout(debounce); const s = ws; ws = null; try { s?.close(); } catch {} },
+    stop() { stopped = true; clearTimeout(timer); clearTimeout(debounce); debounce = null; const s = ws; ws = null; streaming = false; try { s?.close(); } catch {} },
   };
 }

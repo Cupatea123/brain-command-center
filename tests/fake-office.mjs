@@ -23,6 +23,7 @@ const ROUTES = { '/api/state': 'state.json', '/api/employees': 'employees.json',
 
 export function startFakeOffice({ port = 0, token = '', dir = FIXTURES } = {}) {
   const overrides = {};
+  const failing = {};   // route file -> { times, status }: answer with that status the next <times> reads
   const sockets = new Set();
   const seen = [];   // every request: { path, token } so a test can check what was sent
   const has = (name) => (name in overrides ? overrides[name] !== undefined : fs.existsSync(path.join(dir, name)));
@@ -34,6 +35,8 @@ export function startFakeOffice({ port = 0, token = '', dir = FIXTURES } = {}) {
     seen.push({ path: p, token: req.headers['x-omc-token'] || '', query: new URL(req.url, 'http://x').search });
     const json = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (p.startsWith('/api/') && !allowed(req)) return json(401, { detail: 'Missing or invalid local token' });
+    const f = ROUTES[p] && failing[ROUTES[p]];
+    if (f && f.times > 0) { f.times--; return json(f.status, { detail: 'Internal Server Error' }); }
     if (ROUTES[p]) return has(ROUTES[p]) ? json(200, read(ROUTES[p])) : json(404, { detail: 'Not Found' });
     if (p.startsWith('/api/ceo/sessions/')) return json(200, (has('ceo_session.json') ? read('ceo_session.json') : {})[p.slice('/api/ceo/sessions/'.length)] || { history: [], pending_count: 0 });
     if (p === '/') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end('<!doctype html><title>Fake office</title><p>Fixture office for the AGENTS panel.</p>'); }
@@ -64,7 +67,9 @@ export function startFakeOffice({ port = 0, token = '', dir = FIXTURES } = {}) {
     seen,
     sockets,
     set(name, value) { overrides[name] = value; },                           // replace one fixture (undefined: answer 404)
+    fail(name, { times = 1, status = 500 } = {}) { failing[name] = { times, status }; },   // the next <times> reads of that route fail
     send(obj) { for (const s of sockets) s.write(frame(obj)); },             // push an event to every listener
+    drop() { for (const s of sockets) { s.end(Buffer.from([0x88, 0x02, 0x03, 0xe8])); sockets.delete(s); } },   // close every event stream (close frame 1000)
     close() { for (const s of sockets) s.destroy(); server.closeAllConnections?.(); return new Promise((r) => server.close(r)); },
   })));
 }

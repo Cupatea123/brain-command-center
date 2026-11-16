@@ -148,7 +148,7 @@ test('a booked room whose meeting is over keeps nobody in a meeting', () => {
   assert.equal(rows(buildView(closed))['00006'].room, '');
 });
 
-test('TOKENS: the office\'s budget figure when it has one, the usage log otherwise, and the view says which', () => {
+test('TOKENS: the office\'s budget figures when it answers its budget, the usage log only without one, never a mix', () => {
   const v = buildView(moment('1-working'), { tokensFor: () => ({ tokens: 5, cache_read: 0, turns: 1, runs: 1, last: '' }) });
   const by = rows(v);
   assert.equal(v.tokenSource, 'budget');
@@ -156,15 +156,17 @@ test('TOKENS: the office\'s budget figure when it has one, the usage log otherwi
   assert.deepEqual(by['00004'].tokens, { source: 'budget', tokens: 1910000, window: 'day', limit: 15000000, percent: 12, state: 'ok' });
   assert.equal(by['00009'].tokens.tokens, 0, 'a budget figure of 0 is a figure');
   assert.equal(by['00009'].tokens.source, 'budget');
-  // only some employees in the budget: the rest come from their usage log, marked as such
+  // only some employees in the budget: the others have no number, not the usage log's other count
   const part = raw();
   part.budget = { employees: { '00004': fx('budget.json').employees['00004'], '00003': { caps: {}, status: [] } } };
-  const p = rows(buildView(part, { tokensFor: (id) => usageTotals(EMPLOYEES_DIR, id) }));
+  const pv = buildView(part, { tokensFor: (id) => usageTotals(EMPLOYEES_DIR, id) });
+  const p = rows(pv);
+  assert.equal(pv.tokenSource, 'budget');
   assert.equal(p['00004'].tokens.source, 'budget');
   assert.equal(p['00004'].tokens.tokens, 1250000);
-  assert.equal(p['00006'].tokens.source, 'usage');
-  assert.equal(p['00006'].tokens.tokens, 1000);
-  assert.equal(p['00003'].tokens, null, 'no cap and no usage log: no number');
+  assert.equal(p['00006'].tokens, null, 'has a usage log, but the table counts the budget\'s way');
+  assert.equal(p['00003'].tokens, null, 'in the budget without a token figure: no number');
+  assert.ok(pv.employees.every((e) => !e.tokens || e.tokens.source === 'budget'), 'one count in the whole table');
   // no budget at all: the usage log, as before
   const u = buildView(raw(), { tokensFor: (id) => usageTotals(EMPLOYEES_DIR, id) });
   assert.equal(u.tokenSource, 'usage');
@@ -332,4 +334,103 @@ test('the office restarting keeps the rows and comes back; staying away turns in
     assert.deepEqual(w2.view().employees, []);
     assert.ok(w2.view().seen, 'when it was last seen is kept');
   } finally { w2.stop(); }
+});
+
+// What a real run showed. One failed read of the budget switched the whole TOKENS column to
+// the usage log for one poll; one failed read of /api/state left the header on "polling" for good.
+test('one failed budget read keeps the last budget figures and says how old they are', async () => {
+  const office = await startFakeOffice();
+  const lines = [];
+  const w = watchOffice({ url: office.url, employeesDir: EMPLOYEES_DIR, pollSeconds: 3600 }, { log: (l) => lines.push(l) });
+  const tok = () => w.view().employees.map((e) => [e.id, e.tokens?.source ?? null, e.tokens?.tokens ?? null]);
+  try {
+    assert.ok(await until(() => w.view().state === 'up'));
+    const before = tok();
+    const read = w.view().seen;
+    assert.equal(w.view().tokenSource, 'budget');
+    assert.equal(w.view().budgetAsOf, '', 'fresh figures carry no time of their own');
+    office.fail('budget.json', { status: 500 });
+    await new Promise((r) => setTimeout(r, 20));
+    await w.refresh();
+    assert.equal(w.view().state, 'up');
+    assert.equal(w.view().tokenSource, 'budget', 'still the budget, not the usage log');
+    assert.deepEqual(tok(), before, 'every row keeps its figure');
+    assert.equal(w.view().budgetAsOf, read, 'the figures say when they were read');
+    assert.ok(w.view().seen > read, 'the rest of the view is newer');
+    assert.ok(lines.some((l) => /budget did not answer/.test(l)));
+    office.fail('budget.json', { status: 404 });   // a missing answer is the same
+    await w.refresh();
+    assert.deepEqual(tok(), before);
+    assert.equal(w.view().budgetAsOf, read);
+    await w.refresh();
+    assert.equal(w.view().budgetAsOf, '', 'answered again: fresh figures');
+    // a failed read of /api/state: the rows and their figures stay, the view says why
+    office.fail('state.json', { status: 500 });
+    await w.refresh();
+    assert.equal(w.view().state, 'reconnecting');
+    assert.match(w.view().reason, /HTTP 500 on \/api\/state/);
+    assert.deepEqual(tok(), before);
+    await w.refresh();
+    assert.equal(w.view().state, 'up');
+    assert.deepEqual(tok(), before);
+  } finally { w.stop(); await office.close(); }
+
+  // an office that has never answered its budget: the usage log, as without a budget route
+  const never = await startFakeOffice();
+  never.fail('budget.json', { status: 500 });
+  const w2 = watchOffice({ url: never.url, employeesDir: EMPLOYEES_DIR, pollSeconds: 3600 }, { WS: null });
+  try {
+    assert.ok(await until(() => w2.view().state === 'up'));
+    assert.equal(w2.view().tokenSource, 'usage');
+    assert.equal(w2.view().budgetAsOf, '');
+    assert.equal(rows(w2.view())['00006'].tokens.tokens, 1000);
+  } finally { w2.stop(); await never.close(); }
+});
+
+test('live comes back: after a failed read with the stream still open, and after the office drops the stream', async () => {
+  const office = await startFakeOffice();
+  const w = watchOffice({ url: office.url, pollSeconds: 3600 }, {});
+  const upgrades = () => office.seen.filter((r) => r.path === '/ws').length;
+  try {
+    assert.ok(await until(() => w.view().state === 'up' && w.view().live));
+    office.fail('state.json', { status: 500 });
+    await w.refresh();
+    assert.equal(w.view().live, false, 'not live while the reads fail');
+    await w.refresh();
+    assert.equal(w.view().state, 'up');
+    assert.equal(w.view().live, true, 'the stream never closed: live again with the next good read');
+    assert.equal(upgrades(), 1, 'the same stream');
+
+    office.drop();
+    assert.ok(await until(() => upgrades() === 2), 'a new stream was opened');
+    assert.ok(await until(() => w.view().state === 'up' && w.view().live), 'live again once the new stream delivers');
+    const reads = office.seen.filter((r) => r.path === '/api/employees').length;
+    office.send({ type: 'agent_done', agent: 'EA', payload: {} });
+    assert.ok(await until(() => office.seen.filter((r) => r.path === '/api/employees').length > reads, 1500), 'events on the new stream re-read the office');
+  } finally { w.stop(); await office.close(); }
+});
+
+test('a status change sent as an event shows within a second, even while events keep coming', async () => {
+  const office = await startFakeOffice();
+  const w = watchOffice({ url: office.url, pollSeconds: 3600 }, {});
+  const reads = () => office.seen.filter((r) => r.path === '/api/employees').length;
+  let iv = null;
+  try {
+    assert.ok(await until(() => w.view().state === 'up' && w.view().live));
+    const n0 = reads();
+    // a busy office: an event every 150 ms for three seconds
+    iv = setInterval(() => office.send({ type: 'tree_update', agent: '', payload: {} }), 150);
+    const emps = fx('employees.json');
+    emps.find((e) => e.id === '00002').status = 'working';
+    emps.find((e) => e.id === '00002').current_task_summary = 'Screening candidates';
+    office.set('employees.json', emps);
+    const t0 = Date.now();
+    office.send({ type: 'dispatch_status_change', agent: '', payload: { employee_id: '00002', status: 'dispatched' } });
+    assert.ok(await until(() => w.view().employees.find((e) => e.id === '00002')?.status === 'working', 1000), 'shown within a second');
+    const lag = Date.now() - t0;
+    await new Promise((r) => setTimeout(r, 3000 - lag));
+    clearInterval(iv); iv = null;
+    const n = reads() - n0;
+    assert.ok(n >= 3 && n <= 7, `under two reads a second while events keep coming (${n} in 3 s)`);
+  } finally { if (iv) clearInterval(iv); w.stop(); await office.close(); }
 });
