@@ -475,11 +475,23 @@ async function directorPrompt(id, text) {
   }
 }
 
+// Since 2026-11-16 Obsidian Git is the vault's only committer, so most commits are titled
+// "vault backup: <time>" and the subject says nothing. For those, list the notes the commit
+// changed instead; a backup that touched no note is dropped.
+function parseVaultCommits(out) {
+  return String(out || '').split('\x1e').map((b) => b.trim()).filter(Boolean).map((b) => {
+    const [head, ...files] = b.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const [h, t, s] = head.split('\t');
+    const c = { time: t, subject: s, sha: (h || '').slice(0, 7) };
+    if (/^vault backup:/.test(s || '')) c.notes = files.filter((f) => f.endsWith('.md')).map((f) => f.replace(/\.md$/, '')).slice(0, 12);
+    return c;
+  }).filter((c) => !c.notes || c.notes.length).slice(0, 60);
+}
+
 async function vaultCommitsToday() {
   if (!fs.existsSync(path.join(CONFIG.vault, '.git'))) return [];
-  const r = await git(['log', '--since=midnight', '--format=%H%x09%ad%x09%s', '--date=format:%H:%M']);
-  return (r.out || '').trim().split(/\r?\n/).filter(Boolean).map((l) => { const [h, t, s] = l.split('\t'); return { time: t, subject: s, sha: h.slice(0, 7) }; })
-    .filter((c) => !/^vault backup:/.test(c.subject)).slice(0, 60);
+  const r = await git(['log', '--since=midnight', '--name-only', '--format=%x1e%H%x09%ad%x09%s', '--date=format:%H:%M']);
+  return parseVaultCommits(r.out);
 }
 
 async function directorDayend() {
@@ -496,7 +508,7 @@ async function directorDayend() {
   const prompt = [
     `DAYEND ${new Date().toISOString()}`,
     'Changes from the start-of-day view to now:', JSON.stringify(diff.diff),
-    `Vault commits today (Obsidian auto-backups excluded): ${JSON.stringify(await vaultCommitsToday())}`,
+    `Vault commits today (Obsidian Git auto-backups list the notes they changed): ${JSON.stringify(await vaultCommitsToday())}`,
     `TODO lines ticked today: ${JSON.stringify(snap.todo_done_today || [])}`,
     `Tasks marked done in the last 7 days: ${JSON.stringify(snap.tasks_done_recent || [])}`,
     `${CONFIG.owner}'s prompts in Claude sessions today (${act.prompts.length}): ${JSON.stringify(act.prompts.slice(0, 60))}`,
